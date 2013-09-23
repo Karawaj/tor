@@ -72,6 +72,7 @@ LIBOR_A_SOURCES = \
   src/common/util.c					\
   src/common/util_codedigest.c				\
   src/common/sandbox.c					\
+  src/common/workqueue.c				\
   $(libor_extra_source)
 
 LIBOR_CRYPTO_A_SOURCES = \
@@ -120,7 +121,8 @@ COMMONHEADERS = \
   src/common/torint.h				\
   src/common/torlog.h				\
   src/common/tortls.h				\
-  src/common/util.h
+  src/common/util.h				\
+  src/common/workqueue.h
 
 noinst_HEADERS+= $(COMMONHEADERS)
 
