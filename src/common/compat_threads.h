@@ -82,15 +82,20 @@ typedef struct tor_cond_t {
 #ifdef USE_PTHREADS
   pthread_cond_t cond;
 #elif defined(USE_WIN32_THREADS)
-  CRITICAL_SECTION mutex;
-  smartlist_t *events;
+  HANDLE event;
+
+  CRITICAL_SECTION lock;
+  int n_waiting;
+  int n_to_wake;
+  int generation;
 #else
 #error no known condition implementation.
 #endif
 } tor_cond_t;
 tor_cond_t *tor_cond_new(void);
 void tor_cond_free(tor_cond_t *cond);
-int tor_cond_wait(tor_cond_t *cond, tor_mutex_t *mutex);
+int tor_cond_wait(tor_cond_t *cond, tor_mutex_t *mutex,
+                  const struct timeval *tv);
 void tor_cond_signal_one(tor_cond_t *cond);
 void tor_cond_signal_all(tor_cond_t *cond);
 #endif
