@@ -27,6 +27,22 @@ tor_mutex_free(tor_mutex_t *m)
   tor_mutex_uninit(m);
   tor_free(m);
 }
+tor_cond_t *
+tor_cond_new(void)
+{
+  tor_cond_t *cond = tor_malloc(sizeof(tor_cond_t));
+  if (tor_cond_init(cond)<0)
+    tor_free(cond);
+  return cond;
+}
+void
+tor_cond_free(tor_cond_t *c)
+{
+  if (!c)
+    return;
+  tor_cond_uninit(c);
+  tor_free(c);
+}
 #endif
 
 /** Identity of the "main" thread */
