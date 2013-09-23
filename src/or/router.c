@@ -11,6 +11,7 @@
 #include "circuitlist.h"
 #include "circuituse.h"
 #include "config.h"
+#include "compat_threads.h"
 #include "connection.h"
 #include "control.h"
 #include "crypto_curve25519.h"

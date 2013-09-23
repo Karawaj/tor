@@ -15,6 +15,7 @@ const char tor_git_revision[] = "";
 #include "orconfig.h"
 
 #include "or.h"
+#include "compat_threads.h"
 #include "onion_tap.h"
 #include "relay.h"
 #include <openssl/opensslv.h>

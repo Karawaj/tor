@@ -19,6 +19,7 @@
 #include "circuitbuild.h"
 #include "circuitlist.h"
 #include "circuituse.h"
+#include "compat_threads.h"
 #include "command.h"
 #include "config.h"
 #include "confparse.h"

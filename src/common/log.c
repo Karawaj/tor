@@ -31,6 +31,7 @@
 #include <fcntl.h>
 #endif
 #include "compat.h"
+#include "compat_threads.h"
 #include "util.h"
 #define LOG_PRIVATE
 #include "torlog.h"

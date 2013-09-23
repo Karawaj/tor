@@ -25,6 +25,7 @@
 #include "container.h"
 #include "address.h"
 #include "../common/sandbox.h"
+#include "compat_threads.h"
 
 #ifdef _WIN32
 #include <io.h>

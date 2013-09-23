@@ -44,6 +44,7 @@ double fabs(double x);
 #include "buffers.h"
 #include "circuitlist.h"
 #include "circuitstats.h"
+#include "compat_threads.h"
 #include "config.h"
 #include "connection_edge.h"
 #include "geoip.h"

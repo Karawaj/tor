@@ -17,6 +17,7 @@
 #include "channeltls.h"
 #include "circuitbuild.h"
 #include "circuitlist.h"
+#include "compat_threads.h"
 #include "config.h"
 #include "connection.h"
 #include "connection_or.h"
