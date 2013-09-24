@@ -57,6 +57,7 @@ typedef struct tor_mutex_t {
 #ifdef TOR_IS_MULTITHREADED
 tor_mutex_t *tor_mutex_new(void);
 void tor_mutex_init(tor_mutex_t *m);
+void tor_mutex_init_for_cond(tor_mutex_t *m);
 void tor_mutex_acquire(tor_mutex_t *m);
 void tor_mutex_release(tor_mutex_t *m);
 void tor_mutex_free(tor_mutex_t *m);
@@ -66,6 +67,7 @@ void tor_threads_init(void);
 #else
 #define tor_mutex_new() ((tor_mutex_t*)tor_malloc(sizeof(int)))
 #define tor_mutex_init(m) STMT_NIL
+#define tor_mutex_init_for_cond(m) STMT_NIL
 #define tor_mutex_acquire(m) STMT_VOID(m)
 #define tor_mutex_release(m) STMT_NIL
 #define tor_mutex_free(m) STMT_BEGIN tor_free(m); STMT_END
