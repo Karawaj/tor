@@ -56,8 +56,9 @@ typedef struct tor_mutex_t {
 
 #ifdef TOR_IS_MULTITHREADED
 tor_mutex_t *tor_mutex_new(void);
+tor_mutex_t *tor_mutex_new_nonreentrant(void);
 void tor_mutex_init(tor_mutex_t *m);
-void tor_mutex_init_for_cond(tor_mutex_t *m);
+void tor_mutex_init_nonreentrant(tor_mutex_t *m);
 void tor_mutex_acquire(tor_mutex_t *m);
 void tor_mutex_release(tor_mutex_t *m);
 void tor_mutex_free(tor_mutex_t *m);
@@ -75,6 +76,9 @@ void tor_threads_init(void);
 #define tor_get_thread_id() (1UL)
 #define tor_threads_init() STMT_NIL
 #endif
+
+/** Conditions need nonreentrant mutexes with pthreads. */
+#define tor_mutex_init_for_cond(m) tor_mutex_init_nonreentrant(m)
 
 void set_main_thread(void);
 int in_main_thread(void);

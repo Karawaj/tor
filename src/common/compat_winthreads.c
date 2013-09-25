@@ -47,7 +47,7 @@ tor_mutex_init(tor_mutex_t *m)
 }
 
 void
-tor_mutex_init_for_cond(tor_mutex_t *m)
+tor_mutex_init_nonreentrant(tor_mutex_t *m)
 {
   InitializeCriticalSection(&m->mutex);
 }
