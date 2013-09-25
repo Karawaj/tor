@@ -307,6 +307,7 @@ AC_CHECK_FUNCS(
         _NSGetEnviron \
         accept4 \
         clock_gettime \
+	eventfd \
         flock \
         ftime \
         getaddrinfo \
@@ -321,6 +322,8 @@ AC_CHECK_FUNCS(
         localtime_r \
         lround \
         memmem \
+	pipe \
+	pipe2 \
         prctl \
         rint \
         socketpair \
@@ -826,6 +829,7 @@ AC_CHECK_HEADERS(
         netinet/in6.h \
         pwd.h \
         stdint.h \
+	sys/eventfd.h \
         sys/file.h \
         sys/ioctl.h \
         sys/limits.h \
