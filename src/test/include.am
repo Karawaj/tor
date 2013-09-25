@@ -34,6 +34,7 @@ src_test_test_SOURCES = \
 	src/test/test_pt.c \
 	src/test/test_replay.c \
 	src/test/test_socks.c \
+	src/test/test_threads.c \
 	src/test/test_util.c \
 	src/test/test_config.c \
 	src/ext/tinytest.c
