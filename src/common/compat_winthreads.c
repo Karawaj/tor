@@ -8,6 +8,10 @@
 #include "compat_threads.h"
 #include "util.h"
 #include "torlog.h"
+#include <process.h>
+
+/* This value is more or less total cargo-cult */
+#define SPIN_COUNT 2000
 
 /** Minimalist interface to run a void function in the background.  On
  * Unix calls fork, on win32 calls beginthread.  Returns -1 on failure.
@@ -110,7 +114,6 @@ tor_cond_signal_impl(tor_cond_t *cond, int broadcast)
   cond->generation++;
   SetEvent(cond->event);
   LeaveCriticalSection(&cond->lock);
-  return 0;
 }
 
 void
@@ -126,15 +129,15 @@ tor_cond_signal_all(tor_cond_t *cond)
 }
 
 int
-tor_cond_wait(tor_cond_t *cond, tor_mutex_t *lock, const struct timeval *tv)
+tor_cond_wait(tor_cond_t *cond, tor_mutex_t *lock_, const struct timeval *tv)
 {
-  CRITICAL_SECTION *lock = &lock->mutex;
+  CRITICAL_SECTION *lock = &lock_->mutex;
   int generation_at_start;
   int waiting = 1;
   int result = -1;
   DWORD ms = INFINITE, ms_orig = INFINITE, startTime, endTime;
   if (tv)
-    ms_orig = ms = evutil_tv_to_msec_(tv);
+    ms_orig = ms = tv->tv_sec*1000 + (tv->tv_usec+999)/1000;
 
   EnterCriticalSection(&cond->lock);
   ++cond->n_waiting;
