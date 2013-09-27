@@ -74,9 +74,9 @@ spawn_exit(void)
 }
 
 /** A mutex attribute that we're going to use to tell pthreads that we want
- * "reentrant" mutexes (i.e., once we can re-lock if we're already holding
+ * "recursive" mutexes (i.e., once we can re-lock if we're already holding
  * them.) */
-static pthread_mutexattr_t attr_reentrant;
+static pthread_mutexattr_t attr_recursive;
 
 /** True iff we've called tor_threads_init() */
 static int threads_initialized = 0;
@@ -89,7 +89,7 @@ tor_mutex_init(tor_mutex_t *mutex)
   int err;
   if (PREDICT_UNLIKELY(!threads_initialized))
     tor_threads_init();
-  err = pthread_mutex_init(&mutex->mutex, &attr_reentrant);
+  err = pthread_mutex_init(&mutex->mutex, &attr_recursive);
   if (PREDICT_UNLIKELY(err)) {
     log_err(LD_GENERAL, "Error %d creating a mutex.", err);
     tor_fragile_assert();
@@ -97,9 +97,9 @@ tor_mutex_init(tor_mutex_t *mutex)
 }
 
 /** As tor_mutex_init, but initialize a mutex suitable that may be
- * non-reentrant, if the OS supports that. */
+ * non-recursive, if the OS supports that. */
 void
-tor_mutex_init_nonreentrant(tor_mutex_t *mutex)
+tor_mutex_init_nonrecursive(tor_mutex_t *mutex)
 {
   int err;
   if (PREDICT_UNLIKELY(!threads_initialized))
@@ -238,8 +238,8 @@ void
 tor_threads_init(void)
 {
   if (!threads_initialized) {
-    pthread_mutexattr_init(&attr_reentrant);
-    pthread_mutexattr_settype(&attr_reentrant, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutexattr_init(&attr_recursive);
+    pthread_mutexattr_settype(&attr_recursive, PTHREAD_MUTEX_RECURSIVE);
     threads_initialized = 1;
     set_main_thread();
   }
