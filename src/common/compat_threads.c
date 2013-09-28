@@ -252,3 +252,4 @@ alert_sockets_close(alert_sockets_t *socks)
   }
   socks->read_fd = socks->write_fd = -1;
 }
+

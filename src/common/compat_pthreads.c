@@ -164,7 +164,6 @@ tor_get_thread_id(void)
   return r.id;
 }
 
-
 /* Conditions. */
 
 /** Initialize an already-allocated condition variable. */
@@ -244,5 +243,4 @@ tor_threads_init(void)
     set_main_thread();
   }
 }
-
 
