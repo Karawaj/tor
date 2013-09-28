@@ -334,6 +334,7 @@ AC_CHECK_FUNCS(
         strtoull \
         sysconf \
         uname \
+	usleep \
         vasprintf \
 	_vscprintf
 )

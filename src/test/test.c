@@ -1581,6 +1581,23 @@ const struct testcase_setup_t legacy_setup = {
   legacy_test_setup, legacy_test_cleanup
 };
 
+static void *
+passthrough_test_setup(const struct testcase_t *testcase)
+{
+  return testcase->setup_data;
+}
+static int
+passthrough_test_cleanup(const struct testcase_t *testcase, void *ptr)
+{
+  (void)testcase;
+  (void)ptr;
+  return 1;
+}
+
+const struct testcase_setup_t passthrough_setup = {
+  passthrough_test_setup, passthrough_test_cleanup
+};
+
 #define ENT(name)                                                       \
   { #name, legacy_test_helper, 0, &legacy_setup, test_ ## name }
 #define FORK(name)                                                      \

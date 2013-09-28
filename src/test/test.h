@@ -74,6 +74,7 @@ crypto_pk_t *pk_generate(int idx);
 
 void legacy_test_helper(void *data);
 extern const struct testcase_setup_t legacy_setup;
+extern const struct testcase_setup_t passthrough_setup;
 
 #endif
 

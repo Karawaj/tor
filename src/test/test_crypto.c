@@ -1109,37 +1109,23 @@ test_crypto_curve25519_persist(void *arg)
 
 #endif
 
-static void *
-pass_data_setup_fn(const struct testcase_t *testcase)
-{
-  return testcase->setup_data;
-}
-static int
-pass_data_cleanup_fn(const struct testcase_t *testcase, void *ptr)
-{
-  (void)ptr;
-  (void)testcase;
-  return 1;
-}
-static const struct testcase_setup_t pass_data = {
-  pass_data_setup_fn, pass_data_cleanup_fn
-};
-
 #define CRYPTO_LEGACY(name)                                            \
   { #name, legacy_test_helper, 0, &legacy_setup, test_crypto_ ## name }
 
 struct testcase_t crypto_tests[] = {
   CRYPTO_LEGACY(formats),
   CRYPTO_LEGACY(rng),
-  { "aes_AES", test_crypto_aes, TT_FORK, &pass_data, (void*)"aes" },
-  { "aes_EVP", test_crypto_aes, TT_FORK, &pass_data, (void*)"evp" },
+  { "aes_AES", test_crypto_aes, TT_FORK, &passthrough_setup, (void*)"aes" },
+  { "aes_EVP", test_crypto_aes, TT_FORK, &passthrough_setup, (void*)"evp" },
   CRYPTO_LEGACY(sha),
   CRYPTO_LEGACY(pk),
   CRYPTO_LEGACY(digests),
   CRYPTO_LEGACY(dh),
   CRYPTO_LEGACY(s2k),
-  { "aes_iv_AES", test_crypto_aes_iv, TT_FORK, &pass_data, (void*)"aes" },
-  { "aes_iv_EVP", test_crypto_aes_iv, TT_FORK, &pass_data, (void*)"evp" },
+  { "aes_iv_AES", test_crypto_aes_iv, TT_FORK, &passthrough_setup,
+    (void*)"aes" },
+  { "aes_iv_EVP", test_crypto_aes_iv, TT_FORK, &passthrough_setup,
+    (void*)"evp" },
   CRYPTO_LEGACY(base32_decode),
   { "kdf_TAP", test_crypto_kdf_TAP, 0, NULL, NULL },
   { "hkdf_sha256", test_crypto_hkdf_sha256, 0, NULL, NULL },
