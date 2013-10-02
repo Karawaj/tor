@@ -712,6 +712,7 @@ circuit_free(circuit_t *circ)
 {
   void *mem;
   size_t memlen;
+  int should_free = 1;
   if (!circ)
     return;
 
@@ -751,6 +752,8 @@ circuit_free(circuit_t *circ)
     memlen = sizeof(or_circuit_t);
     tor_assert(circ->magic == OR_CIRCUIT_MAGIC);
 
+    should_free = (ocirc->workqueue_entry == NULL);
+
     crypto_cipher_free(ocirc->p_crypto);
     crypto_digest_free(ocirc->p_digest);
     crypto_cipher_free(ocirc->n_crypto);
@@ -782,8 +785,18 @@ circuit_free(circuit_t *circ)
    * "active" checks will be violated. */
   cell_queue_clear(&circ->n_chan_cells);
 
-  memwipe(mem, 0xAA, memlen); /* poison memory */
-  tor_free(mem);
+  if (should_free) {
+    memwipe(mem, 0xAA, memlen); /* poison memory */
+    tor_free(mem);
+  } else {
+    /* If we made it here, this is an or_circuit_t that still has a pending
+     * cpuworker request which we weren't able to cancel.  Instead, set up
+     * the magic value so that when the reply comes back, we'll know to discard
+     * the reply and free this structure.
+     */
+    memwipe(mem, 0xAA, memlen);
+    circ->magic = DEAD_CIRCUIT_MAGIC;
+  }
 }
 
 /** Deallocate space associated with the linked list <b>cpath</b>. */
