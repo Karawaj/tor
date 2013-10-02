@@ -1643,7 +1643,7 @@ options_act(const or_options_t *old_options)
         if (can_complete_circuit || !any_predicted_circuits(time(NULL)))
           inform_testing_reachability();
       }
-      cpuworkers_rotate();
+      cpuworkers_rotate_keyinfo();
       if (dns_reset())
         return -1;
     } else {
