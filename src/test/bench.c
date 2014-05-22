@@ -408,6 +408,53 @@ bench_cell_ops(void)
   tor_free(cell);
 }
 
+//Sorry about copypaste from relay.c
+static int
+relay_crypt_one_payload(crypto_cipher_t *cipher, uint8_t *in,
+                        int encrypt_mode)
+{
+  int r;
+  (void)encrypt_mode;
+  r = crypto_cipher_crypt_inplace(cipher, (char*) in, CELL_PAYLOAD_SIZE);
+
+  if (r) {
+    log_warn(LD_BUG,"Error during relay encryption");
+    return -1;
+  }
+  return 0;
+}
+
+static void
+bench_one_payload(void)
+{
+  const int iters = 1 << 16;
+  or_circuit_t *or_circ = tor_malloc_zero(sizeof(or_circuit_t));
+  cell_t *cell = tor_malloc(sizeof(cell_t));
+  uint64_t start, end;
+  int i;
+
+  crypto_rand((char*)cell->payload, sizeof(cell->payload));
+  or_circ->p_crypto = crypto_cipher_new(NULL);
+  reset_perftime();
+
+  start = perftime();
+  
+  for (i = 0; i < iters; ++i) {
+    if (relay_crypt_one_payload(or_circ->p_crypto, cell->payload, 1) < 0) {
+      fprintf(stderr, "something gone wrong during crypting\n");
+      break;
+    }  
+  }
+  
+  end = perftime();
+
+  printf("%d payloads done, average time:%.2f\n", iters, NANOCOUNT(start,end,iters));
+  
+  crypto_cipher_free(or_circ->p_crypto);
+  tor_free(or_circ);
+  tor_free(cell);
+}
+
 static void
 bench_dh(void)
 {
@@ -512,6 +559,7 @@ static struct benchmark_t benchmarks[] = {
   ENT(siphash),
   ENT(aes),
   ENT(onion_TAP),
+  ENT(one_payload),
 #ifdef CURVE25519_ENABLED
   ENT(onion_ntor),
 #endif
