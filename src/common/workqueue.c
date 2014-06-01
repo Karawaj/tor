@@ -21,6 +21,9 @@ struct threadpool_s {
   /** Mutex to protect all the above fields. */
   tor_mutex_t lock;
 
+  /** Queue of pending work that we have to do. */
+  TOR_TAILQ_HEAD(, workqueue_entry_s) work;
+
   /** A reply queue to use when constructing new threads. */
   replyqueue_t *reply_queue;
 
@@ -37,7 +40,7 @@ struct workqueue_entry_s {
   /** The thread to which this workqueue_entry_t was assigned. This field
    * is set when the workqueue_entry_t is created, and won't be cleared until
    * after it's handled in the main thread. */
-  struct workerthread_s *on_thread;
+  threadpool_t *on_pool;
   /** True iff this entry is waiting for a worker to start processing it. */
   uint8_t pending;
   /** Function to run in the worker thread. */
@@ -62,25 +65,11 @@ struct replyqueue_s {
  * contention, each gets its own queue. This breaks the guarantee that that
  * queued work will get executed strictly in order. */
 typedef struct workerthread_s {
-  /** Lock to protect all fields of this thread and its queue. */
-  tor_mutex_t lock;
-  /** Condition variable that we wait on when we have no work, and which
-   * gets signaled when our queue becomes nonempty. */
-  tor_cond_t condition;
-  /** Queue of pending work that we have to do. */
-  TOR_TAILQ_HEAD(, workqueue_entry_s) work;
-  /** True iff this thread is currently in its loop. (Not currently used.) */
-  unsigned is_running;
-  /** True iff this thread has crashed or is shut down for some reason. (Not
-   * currently used.) */
-  unsigned is_shut_down;
-  /** True if we're waiting for more elements to get added to the queue. */
-  unsigned waiting;
   /** User-supplied state field that we pass to the worker functions of each
    * work item. */
   void *state;
-  /** Reply queue to which we pass our results. */
-  replyqueue_t *reply_queue;
+  /** Pool where we are getting tasks */
+  threadpool_t *pool;
 } workerthread_t;
 
 static void queue_reply(replyqueue_t *queue, workqueue_entry_t *work);
@@ -132,18 +121,33 @@ workqueue_entry_cancel(workqueue_entry_t *ent)
 {
   int cancelled = 0;
   void *result = NULL;
-  tor_mutex_acquire(&ent->on_thread->lock);
+  tor_mutex_acquire(&ent->on_pool->lock);
   if (ent->pending) {
-    TOR_TAILQ_REMOVE(&ent->on_thread->work, ent, next_work);
+    TOR_TAILQ_REMOVE(&ent->on_pool->work, ent, next_work);
     cancelled = 1;
     result = ent->arg;
   }
-  tor_mutex_release(&ent->on_thread->lock);
+  tor_mutex_release(&ent->on_pool->lock);
 
   if (cancelled) {
     tor_free(ent);
   }
   return result;
+}
+
+static workqueue_entry_t *
+threadpool_get_work(threadpool_t *pool)
+{
+  workqueue_entry_t *work = NULL;
+  tor_mutex_acquire(&pool->lock);
+
+  if(!TOR_TAILQ_EMPTY(&pool->work))
+  {
+	work = TOR_TAILQ_FIRST(&pool->work);
+    TOR_TAILQ_REMOVE(&pool->work, work, next_work);
+  }
+  tor_mutex_release(&pool->lock);
+  return work;
 }
 
 /**
@@ -156,47 +160,21 @@ worker_thread_main(void *thread_)
   workqueue_entry_t *work;
   int result;
 
-  tor_mutex_acquire(&thread->lock);
-  thread->is_running = 1;
   while (1) {
-    /* lock must be held at this point. */
-    while (!TOR_TAILQ_EMPTY(&thread->work)) {
-      /* lock must be held at this point. */
-
-      work = TOR_TAILQ_FIRST(&thread->work);
-      TOR_TAILQ_REMOVE(&thread->work, work, next_work);
+	work = threadpool_get_work(thread->pool);
+	if(work != NULL){
       work->pending = 0;
-      tor_mutex_release(&thread->lock);
 
-      /* We run the work function without holding the thread lock. This
-       * is the main thread's first opportunity to give us more work. */
       result = work->fn(thread->state, work->arg);
 
       /* Queue the reply for the main thread. */
-      queue_reply(thread->reply_queue, work);
+      queue_reply(thread->pool->reply_queue, work);
 
-      tor_mutex_acquire(&thread->lock);
       /* We may need to exit the thread. */
       if (result >= WQ_RPL_ERROR) {
-        thread->is_running = 0;
-        thread->is_shut_down = 1;
-        tor_mutex_release(&thread->lock);
         return;
       }
     }
-    /* At this point the lock is held, and there is no work in this thread's
-     * queue. */
-
-    /* TODO: Try work-stealing. */
-    /* TODO: support an idle-function */
-
-    /* Okay. Now, wait till somebody has work for us. */
-    /* XXXX we could just omit waiting and instead */
-    thread->waiting = 1;
-    if (tor_cond_wait(&thread->condition, &thread->lock, NULL) < 0) {
-      /* XXXX ERROR */
-    }
-    thread->waiting = 0;
   }
 }
 
@@ -221,45 +199,16 @@ queue_reply(replyqueue_t *queue, workqueue_entry_t *work)
 /** Allocate and start a new worker thread to use state object <b>state</b>,
  * and send responses to <b>replyqueue</b>. */
 static workerthread_t *
-workerthread_new(void *state, replyqueue_t *replyqueue)
+workerthread_new(void *state, threadpool_t *pool)
 {
   workerthread_t *thr = tor_malloc_zero(sizeof(workerthread_t));
-  tor_mutex_init_for_cond(&thr->lock);
-  tor_cond_init(&thr->condition);
-  TOR_TAILQ_INIT(&thr->work);
-  thr->state = state;
-  thr->reply_queue = replyqueue;
-
+  thr->pool = pool;
   if (spawn_func(worker_thread_main, thr) < 0) {
     log_err(LD_GENERAL, "Can't launch worker thread.");
     return NULL;
   }
 
   return thr;
-}
-
-/**
- * Add an item of work to a single worker thread. See threadpool_queue_work(*)
- * for arguments.
- */
-static workqueue_entry_t *
-workerthread_queue_work(workerthread_t *worker,
-                        int (*fn)(void *, void *),
-                        void (*reply_fn)(void *),
-                        void *arg)
-{
-  workqueue_entry_t *ent = workqueue_entry_new(fn, reply_fn, arg);
-
-  tor_mutex_acquire(&worker->lock);
-  ent->on_thread = worker;
-  ent->pending = 1;
-  TOR_TAILQ_INSERT_TAIL(&worker->work, ent, next_work);
-
-  if (worker->waiting) /* XXXX inside or outside of lock?? */
-    tor_cond_signal_one(&worker->condition);
-
-  tor_mutex_release(&worker->lock);
-  return ent;
 }
 
 /**
@@ -285,55 +234,19 @@ threadpool_queue_work(threadpool_t *pool,
                       void (*reply_fn)(void *),
                       void *arg)
 {
-  workerthread_t *worker;
-
   tor_mutex_acquire(&pool->lock);
-  /* Pick the next thread in random-access order. */
-  worker = pool->threads[pool->next_for_work++];
-  if (!worker) {
-    tor_mutex_release(&pool->lock);
-    return NULL;
-  }
-  if (pool->next_for_work >= pool->n_threads)
-    pool->next_for_work = 0;
+
+  workqueue_entry_t *ent = workqueue_entry_new(fn, reply_fn, arg);
+
+  ent->on_pool = pool;
+  ent->pending = 1;
+  TOR_TAILQ_INSERT_TAIL(&pool->work, ent, next_work);
+
+
   tor_mutex_release(&pool->lock);
-
-  return workerthread_queue_work(worker, fn, reply_fn, arg);
+  return ent;
 }
 
-/**
- * Queue a copy of a work item for every thread in a pool.  This can be used,
- * for example, to tell the threads to update some parameter in their states.
- *
- * Arguments are as for <b>threadpool_queue_work</b>, except that the
- * <b>arg</b> value is passed to <b>dup_fn</b> once per each thread to
- * make a copy of it.
- *
- * Return 0 on success, -1 on failure.
- */
-int
-threadpool_queue_for_all(threadpool_t *pool,
-                         void *(*dup_fn)(void *),
-                         int (*fn)(void *, void *),
-                         void (*reply_fn)(void *),
-                         void *arg)
-{
-  int i = 0;
-  workerthread_t *worker;
-  void *arg_copy;
-  while (1) {
-    tor_mutex_acquire(&pool->lock);
-    if (i >= pool->n_threads) {
-      tor_mutex_release(&pool->lock);
-      return 0;
-    }
-    worker = pool->threads[i++];
-    tor_mutex_release(&pool->lock);
-
-    arg_copy = dup_fn ? dup_fn(arg) : arg;
-    /* CHECK*/ workerthread_queue_work(worker, fn, reply_fn, arg_copy);
-  }
-}
 
 /** Launch threads until we have <b>n</b>. */
 static int
@@ -346,7 +259,7 @@ threadpool_start_threads(threadpool_t *pool, int n)
 
   while (pool->n_threads < n) {
     void *state = pool->new_thread_state_fn(pool->new_thread_state_arg);
-    workerthread_t *thr = workerthread_new(state, pool->reply_queue);
+    workerthread_t *thr = workerthread_new(state, pool);
 
     if (!thr) {
       tor_mutex_release(&pool->lock);
@@ -447,7 +360,7 @@ replyqueue_process(replyqueue_t *queue)
     workqueue_entry_t *work = TOR_TAILQ_FIRST(&queue->answers);
     TOR_TAILQ_REMOVE(&queue->answers, work, next_work);
     tor_mutex_release(&queue->lock);
-    work->on_thread = NULL;
+    work->on_pool = NULL;
 
     work->reply_fn(work->arg);
     workqueue_entry_free(work);
