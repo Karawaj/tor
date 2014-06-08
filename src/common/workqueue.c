@@ -26,6 +26,9 @@ struct threadpool_s {
 
   /** A reply queue to use when constructing new threads. */
   replyqueue_t *reply_queue;
+  /** User-supplied state field that we pass to the worker functions of each
+   * work item. */
+  void *state;
 
   /** Functions used to allocate and free thread state. */
   void *(*new_thread_state_fn)(void*);
@@ -65,11 +68,11 @@ struct replyqueue_s {
  * contention, each gets its own queue. This breaks the guarantee that that
  * queued work will get executed strictly in order. */
 typedef struct workerthread_s {
-  /** User-supplied state field that we pass to the worker functions of each
-   * work item. */
-  void *state;
   /** Pool where we are getting tasks */
   threadpool_t *pool;
+  /** Mutex to stop work */
+  tor_mutex_t lock;
+
 } workerthread_t;
 
 static void queue_reply(replyqueue_t *queue, workqueue_entry_t *work);
@@ -161,11 +164,12 @@ worker_thread_main(void *thread_)
   int result;
 
   while (1) {
-	work = threadpool_get_work(thread->pool);
-	if(work != NULL){
+    tor_mutex_acquire(&thread->lock);
+    work = threadpool_get_work(thread->pool);
+    if(work != NULL){
       work->pending = 0;
 
-      result = work->fn(thread->state, work->arg);
+      result = work->fn(thread->pool->state, work->arg);
 
       /* Queue the reply for the main thread. */
       queue_reply(thread->pool->reply_queue, work);
@@ -175,6 +179,7 @@ worker_thread_main(void *thread_)
         return;
       }
     }
+    tor_mutex_release(&thread->lock);
   }
 }
 
@@ -203,6 +208,7 @@ workerthread_new(void *state, threadpool_t *pool)
 {
   workerthread_t *thr = tor_malloc_zero(sizeof(workerthread_t));
   thr->pool = pool;
+  tor_mutex_init(&thr->lock);
   if (spawn_func(worker_thread_main, thr) < 0) {
     log_err(LD_GENERAL, "Can't launch worker thread.");
     return NULL;

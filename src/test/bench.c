@@ -20,6 +20,7 @@ const char tor_git_revision[] = "";
 #include "relay.h"
 #include <openssl/opensslv.h>
 #include <openssl/evp.h>
+#include "../common/workqueue.h"
 #ifndef OPENSSL_NO_EC
 #include <openssl/ec.h>
 #include <openssl/ecdh.h>
@@ -472,6 +473,52 @@ bench_ecdh_p224(void)
 }
 #endif
 
+void big_task(void *state, void *args)
+{
+    int iter = 1 << 10;
+    while (--iter)
+    {
+    }    
+    printf("Big Done");
+}
+
+void small_task(void *state, void *args)
+{
+    int iter = 1 << 5;
+    while (--iter)
+    {
+    }    
+    printf("Small Done");
+}
+
+static int countDone = 0;
+void reply_fn(void *work)
+{
+    countDone++;
+}
+static void
+bench_workqueue()
+{
+  int iter = 100, rnd, i;
+  replyqueue_t *replyqueue = replyqueue_new(0);
+  threadpool_t *threadpool = threadpool_new(get_num_cpus(get_options()),
+                          replyqueue,
+                          NULL,
+                          NULL,
+                          NULL);
+  for (i = 0; i < iter; i++)
+  {
+    rnd = rand() % 10;
+    if (rnd < 8)
+      theadpool_queue_work(threadpool, small_task, reply_fn, NULL);
+    else
+      theadpool_queue_work(threadpool, big_task, reply_fn, NULL);  
+  }
+  while(countDone != iter)
+    replyqueue_process(replyqueue);
+  
+}
+
 typedef void (*bench_fn)(void);
 
 typedef struct benchmark_t {
@@ -486,6 +533,7 @@ static struct benchmark_t benchmarks[] = {
   ENT(dmap),
   ENT(aes),
   ENT(onion_TAP),
+  ENT(workqueue),
 #ifdef CURVE25519_ENABLED
   ENT(onion_ntor),
 #endif

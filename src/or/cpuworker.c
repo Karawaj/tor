@@ -185,11 +185,11 @@ update_state_replyfn(void *work_)
 void
 cpuworkers_rotate_keyinfo(void)
 {
-  if (threadpool_queue_for_all(threadpool,
+  /*if (threadpool_update(threadpool,
                                worker_state_new,
                                update_state_threadfn,
                                update_state_replyfn,
-                               NULL)) {
+                               NULL)) */{
     log_warn(LD_OR, "Failed to queue key update for worker threads.");
   }
 }
