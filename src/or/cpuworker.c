@@ -47,6 +47,7 @@ worker_state_new(void *arg)
   ws->onion_keys = server_onion_keys_new();
   return ws;
 }
+
 static void
 worker_state_free(void *arg)
 {
@@ -90,11 +91,12 @@ cpu_init(void)
     event_add(reply_event, NULL);
   }
   if (!threadpool) {
+    void *state = worker_state_new(NULL);
+
     threadpool = threadpool_new(get_num_cpus(get_options()),
                                 replyqueue,
-                                worker_state_new,
-                                worker_state_free,
-                                NULL);
+                                state,
+                                worker_state_free);
   }
   /* Total voodoo. Can we make this more sensible? */
   max_pending_tasks = get_num_cpus(get_options()) * 64;
@@ -162,7 +164,7 @@ typedef struct cpuworker_job_u {
 } cpuworker_job_t;
 
 static int
-update_state_threadfn(void *state_, void *work_)
+update_state(void *state_, void *work_)
 {
   worker_state_t *state = state_;
   worker_state_t *update = work_;
@@ -170,14 +172,9 @@ update_state_threadfn(void *state_, void *work_)
   state->onion_keys = update->onion_keys;
   update->onion_keys = NULL;
   ++state->generation;
+  tor_free(work_);
   return WQ_RPL_REPLY;
 }
-static void
-update_state_replyfn(void *work_)
-{
-  tor_free(work_);
-}
-
 /** Called when the onion key has changed and we need to spawn new
  * cpuworkers.  Close all currently idle cpuworkers, and mark the last
  * rotation time as now.
@@ -185,11 +182,9 @@ update_state_replyfn(void *work_)
 void
 cpuworkers_rotate_keyinfo(void)
 {
-  /*if (threadpool_update(threadpool,
-                               worker_state_new,
-                               update_state_threadfn,
-                               update_state_replyfn,
-                               NULL)) */{
+  void* new_state = worker_state_new(NULL);
+  if (threadpool_update_state(threadpool, update_state, new_state) < 0)
+  {
     log_warn(LD_OR, "Failed to queue key update for worker threads.");
   }
 }

@@ -96,7 +96,8 @@ workqueue_do_rsa(void *state, void *work)
   return WQ_RPL_REPLY;
 }
 
-static int
+/*
+ * static int
 workqueue_do_shutdown(void *state, void *work)
 {
   (void)state;
@@ -105,7 +106,7 @@ workqueue_do_shutdown(void *state, void *work)
   tor_free(state);
   return WQ_RPL_SHUTDOWN;
 }
-
+*/
 #ifdef CURVE25519_ENABLED
 static int
 workqueue_do_ecdh(void *state, void *work)
@@ -183,7 +184,6 @@ add_work(threadpool_t *tp)
   int add_rsa =
     opt_ratio_rsa == 0 ||
     tor_weak_random_range(&weak_rng, opt_ratio_rsa) == 0;
-
   if (add_rsa) {
     rsa_work_t *w = tor_malloc_zero(sizeof(*w));
     w->serial = n_sent++;
@@ -244,7 +244,7 @@ add_n_work_items(threadpool_t *tp, int n)
 static int shutting_down = 0;
 static int n_shutdowns_done = 0;
 
-static void
+/*static void
 shutdown_reply(void *arg)
 {
   (void)arg;
@@ -253,7 +253,7 @@ shutdown_reply(void *arg)
   if (n_shutdowns_done == opt_n_threads) {
     tor_event_base_loopexit(tor_libevent_get_base(), NULL);
   }
-}
+}*/
 
 static void
 replysock_readable_cb(tor_socket_t sock, short what, void *arg)
@@ -301,8 +301,7 @@ replysock_readable_cb(tor_socket_t sock, short what, void *arg)
       n_received+n_successful_cancel == n_sent &&
       n_sent >= opt_n_items) {
     shutting_down = 1;
-    threadpool_queue_for_all(tp, NULL,
-                             workqueue_do_shutdown, shutdown_reply, NULL);
+    threadpool_shutdown(tp);
   }
 }
 
@@ -379,7 +378,7 @@ main(int argc, char **argv)
   rq = replyqueue_new(as_flags);
   tor_assert(rq);
   tp = threadpool_new(opt_n_threads,
-                      rq, new_state, free_state, NULL);
+                      rq, new_state(NULL), free_state);
   tor_assert(tp);
 
   crypto_seed_weak_rng(&weak_rng);
@@ -399,7 +398,6 @@ main(int argc, char **argv)
   tor_mutex_init(&bitmap_mutex);
   handled_len = opt_n_items;
 #endif
-
   for (i = 0; i < opt_n_inflight; ++i) {
     if (! add_work(tp)) {
       puts("Couldn't add work.");
@@ -414,8 +412,10 @@ main(int argc, char **argv)
 
   event_base_loop(tor_libevent_get_base(), 0);
 
-  if (n_sent != opt_n_items || n_received+n_successful_cancel != n_sent ||
-      n_shutdowns_done != opt_n_threads) {
+  if (n_sent != opt_n_items || n_received+n_successful_cancel != n_sent)
+      //||
+      //n_shutdowns_done != opt_n_threads) {
+  {
     puts("FAIL");
     return 1;
   } else {

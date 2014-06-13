@@ -23,29 +23,27 @@ typedef struct workqueue_entry_s workqueue_entry_t;
  * down. */
 #define WQ_RPL_SHUTDOWN 2
 
-/*static int
-int
-threadpool_update(threadpool_t *pool,
-                         void *(*dup_fn)(void *),
-                         int (*fn)(void *, void *),
-                         void (*reply_fn)(void *),
-                         void *arg);*/
+int threadpool_update_state(threadpool_t *pool,
+                         int(*update_state)(void* old_state, void* new_state), void* new_state);
 
 workqueue_entry_t *threadpool_queue_work(threadpool_t *pool,
                                          int (*fn)(void *, void *),
                                          void (*reply_fn)(void *),
                                          void *arg);
 void *workqueue_entry_cancel(workqueue_entry_t *pending_work);
+
 threadpool_t *threadpool_new(int n_threads,
                              replyqueue_t *replyqueue,
-                             void *(*new_thread_state_fn)(void*),
-                             void (*free_thread_state_fn)(void*),
-                             void *arg);
+                             void *state,
+                             void (*free_state)(void *));
+
 replyqueue_t *threadpool_get_replyqueue(threadpool_t *tp);
 
 replyqueue_t *replyqueue_new(uint32_t alertsocks_flags);
 tor_socket_t replyqueue_get_socket(replyqueue_t *rq);
 void replyqueue_process(replyqueue_t *queue);
+
+int threadpool_shutdown(threadpool_t* tp);
 
 #endif
 

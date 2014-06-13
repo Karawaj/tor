@@ -473,22 +473,24 @@ bench_ecdh_p224(void)
 }
 #endif
 
-void big_task(void *state, void *args)
+int big_task(void *state, void *args)
 {
-    int iter = 1 << 10;
+    volatile int iter = 1 << 10;
     while (--iter)
     {
     }    
     printf("Big Done");
+    return 0;
 }
 
-void small_task(void *state, void *args)
+int small_task(void *state, void *args)
 {
-    int iter = 1 << 5;
+    volatile int iter = 1 << 5;
     while (--iter)
     {
     }    
     printf("Small Done");
+    return 0;
 }
 
 static int countDone = 0;
@@ -504,15 +506,14 @@ bench_workqueue()
   threadpool_t *threadpool = threadpool_new(get_num_cpus(get_options()),
                           replyqueue,
                           NULL,
-                          NULL,
                           NULL);
   for (i = 0; i < iter; i++)
   {
     rnd = rand() % 10;
     if (rnd < 8)
-      theadpool_queue_work(threadpool, small_task, reply_fn, NULL);
+      threadpool_queue_work(threadpool, small_task, reply_fn, NULL);
     else
-      theadpool_queue_work(threadpool, big_task, reply_fn, NULL);  
+      threadpool_queue_work(threadpool, big_task, reply_fn, NULL);  
   }
   while(countDone != iter)
     replyqueue_process(replyqueue);

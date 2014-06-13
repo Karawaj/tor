@@ -13,9 +13,6 @@ struct threadpool_s {
   /** An array of pointers to workerthread_t: one for each running worker
    * thread. */
   struct workerthread_s **threads;
-  /** Index of the next thread that we'll give work to.*/
-  int next_for_work;
-
   /** Number of elements in threads. */
   int n_threads;
   /** Mutex to protect all the above fields. */
@@ -29,11 +26,10 @@ struct threadpool_s {
   /** User-supplied state field that we pass to the worker functions of each
    * work item. */
   void *state;
-
-  /** Functions used to allocate and free thread state. */
-  void *(*new_thread_state_fn)(void*);
-  void (*free_thread_state_fn)(void*);
-  void *new_thread_state_arg;
+  /** Function to free state */
+  void (*free_state)(void *);
+  /** If threadpool is shutdown != 0 */
+  int is_shutdown;
 };
 
 struct workqueue_entry_s {
@@ -166,7 +162,7 @@ worker_thread_main(void *thread_)
   while (1) {
     tor_mutex_acquire(&thread->lock);
     work = threadpool_get_work(thread->pool);
-    if(work != NULL){
+    if(work != NULL) {
       work->pending = 0;
 
       result = work->fn(thread->pool->state, work->arg);
@@ -204,7 +200,7 @@ queue_reply(replyqueue_t *queue, workqueue_entry_t *work)
 /** Allocate and start a new worker thread to use state object <b>state</b>,
  * and send responses to <b>replyqueue</b>. */
 static workerthread_t *
-workerthread_new(void *state, threadpool_t *pool)
+workerthread_new(threadpool_t *pool)
 {
   workerthread_t *thr = tor_malloc_zero(sizeof(workerthread_t));
   thr->pool = pool;
@@ -233,20 +229,28 @@ workerthread_new(void *state, threadpool_t *pool)
  *
  * Note that because each thread has its own work queue, work items may not
  * be executed strictly in order.
+ * 
+ * Return NULL if shuted down
  */
-workqueue_entry_t *
+workqueue_entry_t*
 threadpool_queue_work(threadpool_t *pool,
                       int (*fn)(void *, void *),
                       void (*reply_fn)(void *),
                       void *arg)
 {
   tor_mutex_acquire(&pool->lock);
+  workqueue_entry_t *ent = NULL;
 
-  workqueue_entry_t *ent = workqueue_entry_new(fn, reply_fn, arg);
+  if (!pool->is_shutdown)
+  {
 
-  ent->on_pool = pool;
-  ent->pending = 1;
-  TOR_TAILQ_INSERT_TAIL(&pool->work, ent, next_work);
+    ent = workqueue_entry_new(fn, reply_fn, arg);
+
+    ent->on_pool = pool;
+    ent->pending = 1;
+
+    TOR_TAILQ_INSERT_TAIL(&pool->work, ent, next_work);
+  }
 
 
   tor_mutex_release(&pool->lock);
@@ -264,8 +268,7 @@ threadpool_start_threads(threadpool_t *pool, int n)
     pool->threads = tor_realloc(pool->threads, sizeof(workerthread_t*)*n);
 
   while (pool->n_threads < n) {
-    void *state = pool->new_thread_state_fn(pool->new_thread_state_arg);
-    workerthread_t *thr = workerthread_new(state, pool);
+    workerthread_t *thr = workerthread_new(pool);
 
     if (!thr) {
       tor_mutex_release(&pool->lock);
@@ -288,17 +291,17 @@ threadpool_start_threads(threadpool_t *pool, int n)
 threadpool_t *
 threadpool_new(int n_threads,
                replyqueue_t *replyqueue,
-               void *(*new_thread_state_fn)(void*),
-               void (*free_thread_state_fn)(void*),
-               void *arg)
+               void* state,
+               void (*free_state)(void *))
 {
   threadpool_t *pool;
   pool = tor_malloc_zero(sizeof(threadpool_t));
   tor_mutex_init(&pool->lock);
-  pool->new_thread_state_fn = new_thread_state_fn;
-  pool->new_thread_state_arg = arg;
-  pool->free_thread_state_fn = free_thread_state_fn;
   pool->reply_queue = replyqueue;
+  pool->state = state;
+  pool->is_shutdown = 0;
+  pool->free_state = free_state;
+  TOR_TAILQ_INIT(&pool->work);
 
   if (threadpool_start_threads(pool, n_threads) < 0) {
     tor_mutex_uninit(&pool->lock);
@@ -377,3 +380,26 @@ replyqueue_process(replyqueue_t *queue)
   tor_mutex_release(&queue->lock);
 }
 
+int threadpool_update_state(threadpool_t *pool,
+                         int(*update_state)(void*, void*), void* new_state)
+{
+    int i, reply;
+    tor_mutex_acquire(&pool->lock);
+    for( i = 0; i < pool->n_threads; i++)
+        tor_mutex_acquire(&pool->threads[i]->lock);
+    
+    reply = update_state(pool->state, new_state);
+    
+    for( i = 0; i < pool->n_threads; i++)
+        tor_mutex_release(&pool->threads[i]->lock);
+    tor_mutex_release(&pool->lock);
+    return reply;
+}
+
+int threadpool_shutdown(threadpool_t* tp)
+{
+    tor_mutex_acquire(&tp->lock);
+    tp->is_shutdown = 1;
+    tor_mutex_release(&tp->lock);   
+    return 0;
+}
