@@ -475,21 +475,23 @@ bench_ecdh_p224(void)
 
 int big_task(void *state, void *args)
 {
-    volatile int iter = 1 << 10;
+    volatile int iter = 1 << 25, x = 0;
     while (--iter)
     {
+        x++;
     }    
-    printf("Big Done");
+    fprintf(stderr, "Big Done\n");
     return 0;
 }
 
 int small_task(void *state, void *args)
 {
-    volatile int iter = 1 << 5;
+    volatile int iter = 1 << 5, x = 0;
     while (--iter)
     {
+        x++;
     }    
-    printf("Small Done");
+    fprintf(stderr, "Small Done\n");
     return 0;
 }
 
@@ -501,13 +503,17 @@ void reply_fn(void *work)
 static void
 bench_workqueue()
 {
-  int iter = 100, rnd, i;
+  int iters = 100, rnd, i;
+  uint64_t start, end;
+
   replyqueue_t *replyqueue = replyqueue_new(0);
-  threadpool_t *threadpool = threadpool_new(get_num_cpus(get_options()),
+  threadpool_t *threadpool = threadpool_new(get_num_cpus(get_options()) + 1,
                           replyqueue,
                           NULL,
                           NULL);
-  for (i = 0; i < iter; i++)
+  reset_perftime();
+  start = perftime();
+  for (i = 0; i < iters; i++)
   {
     rnd = rand() % 10;
     if (rnd < 8)
@@ -515,8 +521,11 @@ bench_workqueue()
     else
       threadpool_queue_work(threadpool, big_task, reply_fn, NULL);  
   }
-  while(countDone != iter)
+  while(countDone != iters)
     replyqueue_process(replyqueue);
+  end = perftime();
+  printf("Complete workqueue bench:\n"
+         "      %f millisec each.\n", NANOCOUNT(start, end, iters)/1e6);
   
 }
 
