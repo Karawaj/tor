@@ -69,10 +69,10 @@ mark_handled(int serial)
 }
 
 static int
-workqueue_do_rsa(void *state, void *work)
+workqueue_do_rsa(const void *state, void *work)
 {
   rsa_work_t *rw = work;
-  state_t *st = state;
+  const state_t *st = state;
   crypto_pk_t *rsa = st->rsa;
   uint8_t sig[256];
   int len;
@@ -89,7 +89,7 @@ workqueue_do_rsa(void *state, void *work)
   memset(rw->msg, 0, sizeof(rw->msg));
   rw->msglen = len;
   memcpy(rw->msg, sig, len);
-  ++st->n_handled;
+  //++st->n_handled; Can't do it without lock state is shared
 
   mark_handled(rw->serial);
 
@@ -109,17 +109,17 @@ workqueue_do_shutdown(void *state, void *work)
 */
 #ifdef CURVE25519_ENABLED
 static int
-workqueue_do_ecdh(void *state, void *work)
+workqueue_do_ecdh(const void *state, void *work)
 {
   ecdh_work_t *ew = work;
   uint8_t output[CURVE25519_OUTPUT_LEN];
-  state_t *st = state;
+  const state_t *st = state;
 
   tor_assert(st->magic == 13371337);
 
   curve25519_handshake(output, &st->ecdh, &ew->u.pk);
   memcpy(ew->u.msg, output, CURVE25519_OUTPUT_LEN);
-  ++st->n_handled;
+  //++st->n_handled;
   mark_handled(ew->serial);
   return WQ_RPL_REPLY;
 }
@@ -242,7 +242,7 @@ add_n_work_items(threadpool_t *tp, int n)
 }
 
 static int shutting_down = 0;
-static int n_shutdowns_done = 0;
+//static int n_shutdowns_done = 0;
 
 /*static void
 shutdown_reply(void *arg)
@@ -412,7 +412,8 @@ main(int argc, char **argv)
 
   event_base_loop(tor_libevent_get_base(), 0);
 
-  if (n_sent != opt_n_items || n_received+n_successful_cancel != n_sent)
+  printf("%d %d = %d\n", n_received, n_successful_cancel, n_sent);
+  if (n_sent != opt_n_items || n_received + n_successful_cancel != n_sent)
       //||
       //n_shutdowns_done != opt_n_threads) {
   {

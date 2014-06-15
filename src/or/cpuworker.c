@@ -378,9 +378,9 @@ cpuworker_onion_handshake_replyfn(void *work_)
 
 /** Implementation function for onion handshake requests. */
 static int
-cpuworker_onion_handshake_threadfn(void *state_, void *work_)
+cpuworker_onion_handshake_threadfn(const void *state_, void *work_)
 {
-  worker_state_t *state = state_;
+  const worker_state_t *state = state_;
   cpuworker_job_t *job = work_;
 
   /* variables for onion processing */

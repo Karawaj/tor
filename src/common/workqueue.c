@@ -28,8 +28,6 @@ struct threadpool_s {
   void *state;
   /** Function to free state */
   void (*free_state)(void *);
-  /** If threadpool is shutdown != 0 */
-  int is_shutdown;
 };
 
 struct workqueue_entry_s {
@@ -43,7 +41,7 @@ struct workqueue_entry_s {
   /** True iff this entry is waiting for a worker to start processing it. */
   uint8_t pending;
   /** Function to run in the worker thread. */
-  int (*fn)(void *state, void *arg);
+  int (*fn)(const void *state, void *arg);
   /** Function to run while processing the reply queue. */
   void (*reply_fn)(void *arg);
   /** Argument for the above functions. */
@@ -68,6 +66,8 @@ typedef struct workerthread_s {
   threadpool_t *pool;
   /** Mutex to stop work */
   tor_mutex_t lock;
+  /** If thread is shutdown = 1, iff thread can be deleted = 2 */
+  int is_shutdown;
 
 } workerthread_t;
 
@@ -77,7 +77,7 @@ static void queue_reply(replyqueue_t *queue, workqueue_entry_t *work);
  * <b>fn</b> in the worker thread, and <b>reply_fn</b> in the main
  * thread. See threadpool_queue_work() for full documentation. */
 static workqueue_entry_t *
-workqueue_entry_new(int (*fn)(void*, void*),
+workqueue_entry_new(int (*fn)(const void*, void*),
                     void (*reply_fn)(void*),
                     void *arg)
 {
@@ -142,7 +142,7 @@ threadpool_get_work(threadpool_t *pool)
 
   if(!TOR_TAILQ_EMPTY(&pool->work))
   {
-	work = TOR_TAILQ_FIRST(&pool->work);
+    work = TOR_TAILQ_FIRST(&pool->work);
     TOR_TAILQ_REMOVE(&pool->work, work, next_work);
   }
   tor_mutex_release(&pool->lock);
@@ -161,20 +161,30 @@ worker_thread_main(void *thread_)
 
   while (1) {
     tor_mutex_acquire(&thread->lock);
-    work = threadpool_get_work(thread->pool);
-    if(work != NULL) {
-      work->pending = 0;
+    if (PREDICT_LIKELY(thread->is_shutdown == 0))
+    {  
+      work = threadpool_get_work(thread->pool);
+      if(work != NULL) {
+        work->pending = 0;
 
-      result = work->fn(thread->pool->state, work->arg);
+        result = work->fn(thread->pool->state, work->arg);
 
-      /* Queue the reply for the main thread. */
-      queue_reply(thread->pool->reply_queue, work);
+        /* Queue the reply for the main thread. */
+        queue_reply(thread->pool->reply_queue, work);
 
-      /* We may need to exit the thread. */
-      if (result >= WQ_RPL_ERROR) {
-        return;
+        /* We may need to exit the thread. */
+        if (result >= WQ_RPL_ERROR) {
+          return;
+        }
       }
     }
+    else
+    {
+      thread->is_shutdown = 2;
+      tor_mutex_release(&thread->lock);
+      return;
+    }
+    
     tor_mutex_release(&thread->lock);
   }
 }
@@ -204,6 +214,7 @@ workerthread_new(threadpool_t *pool)
 {
   workerthread_t *thr = tor_malloc_zero(sizeof(workerthread_t));
   thr->pool = pool;
+  thr->is_shutdown = 0;
   tor_mutex_init(&thr->lock);
   if (spawn_func(worker_thread_main, thr) < 0) {
     log_err(LD_GENERAL, "Can't launch worker thread.");
@@ -234,24 +245,19 @@ workerthread_new(threadpool_t *pool)
  */
 workqueue_entry_t*
 threadpool_queue_work(threadpool_t *pool,
-                      int (*fn)(void *, void *),
+                      int (*fn)(const void *, void *),
                       void (*reply_fn)(void *),
                       void *arg)
 {
   tor_mutex_acquire(&pool->lock);
   workqueue_entry_t *ent = NULL;
 
-  if (!pool->is_shutdown)
-  {
+  ent = workqueue_entry_new(fn, reply_fn, arg);
 
-    ent = workqueue_entry_new(fn, reply_fn, arg);
+  ent->on_pool = pool;
+  ent->pending = 1;
 
-    ent->on_pool = pool;
-    ent->pending = 1;
-
-    TOR_TAILQ_INSERT_TAIL(&pool->work, ent, next_work);
-  }
-
+  TOR_TAILQ_INSERT_TAIL(&pool->work, ent, next_work);
 
   tor_mutex_release(&pool->lock);
   return ent;
@@ -265,7 +271,7 @@ threadpool_start_threads(threadpool_t *pool, int n)
   tor_mutex_acquire(&pool->lock);
 
   if (pool->n_threads < n)
-    pool->threads = tor_realloc(pool->threads, sizeof(workerthread_t*)*n);
+    pool->threads = tor_realloc(pool->threads, sizeof(workerthread_t*) * n);
 
   while (pool->n_threads < n) {
     workerthread_t *thr = workerthread_new(pool);
@@ -299,7 +305,6 @@ threadpool_new(int n_threads,
   tor_mutex_init(&pool->lock);
   pool->reply_queue = replyqueue;
   pool->state = state;
-  pool->is_shutdown = 0;
   pool->free_state = free_state;
   TOR_TAILQ_INIT(&pool->work);
 
@@ -383,23 +388,63 @@ replyqueue_process(replyqueue_t *queue)
 int threadpool_update_state(threadpool_t *pool,
                          int(*update_state)(void*, void*), void* new_state)
 {
-    int i, reply;
-    tor_mutex_acquire(&pool->lock);
-    for( i = 0; i < pool->n_threads; i++)
-        tor_mutex_acquire(&pool->threads[i]->lock);
-    
-    reply = update_state(pool->state, new_state);
-    
-    for( i = 0; i < pool->n_threads; i++)
-        tor_mutex_release(&pool->threads[i]->lock);
-    tor_mutex_release(&pool->lock);
-    return reply;
+  int i, reply;
+  tor_mutex_acquire(&pool->lock);
+  for (i = 0; i < pool->n_threads; i++)
+      tor_mutex_acquire(&pool->threads[i]->lock);
+  
+  reply = update_state(pool->state, new_state);
+  
+  for (i = 0; i < pool->n_threads; i++)
+      tor_mutex_release(&pool->threads[i]->lock);
+  tor_mutex_release(&pool->lock);
+  return reply;
 }
 
-int threadpool_shutdown(threadpool_t* tp)
+int threadpool_shutdown(threadpool_t* pool)
 {
-    tor_mutex_acquire(&tp->lock);
-    tp->is_shutdown = 1;
-    tor_mutex_release(&tp->lock);   
-    return 0;
+  int can_delete, i, cancelled = 0;
+  workqueue_entry_t *ent;
+  tor_mutex_acquire(&pool->lock);
+
+  for (i = 0; i < pool->n_threads; i++)
+  {
+      tor_mutex_acquire(&pool->threads[i]->lock);
+      pool->threads[i]->is_shutdown = 1;
+      tor_mutex_release(&pool->threads[i]->lock);
+      can_delete = 0;
+      while (!can_delete)
+      {
+          tor_mutex_acquire(&pool->threads[i]->lock);
+          if (pool->threads[i]->is_shutdown == 2)
+              can_delete = 1;
+          tor_mutex_release(&pool->threads[i]->lock);
+          if (!can_delete) {
+            // To do sleep
+          }
+        
+      }
+      tor_mutex_uninit(&pool->threads[i]->lock);
+      tor_free(pool->threads[i]);
+  }
+  
+  while (!TOR_TAILQ_EMPTY(&pool->work))
+  {
+    ent = TOR_TAILQ_FIRST(&pool->work);
+    if (ent->pending) {
+      TOR_TAILQ_REMOVE(&ent->on_pool->work, ent, next_work);
+      tor_free(ent);
+      cancelled++;
+    }
+  }
+  tor_mutex_release(&pool->lock);
+  
+  tor_mutex_uninit(&pool->lock);
+  tor_free(pool);
+  
+  pool->free_state(pool->state);
+  if (cancelled)
+    printf("Warning: %d tasks cancelled due shutdown\n", cancelled);
+
+  return 0;
 }

@@ -27,7 +27,7 @@ int threadpool_update_state(threadpool_t *pool,
                          int(*update_state)(void* old_state, void* new_state), void* new_state);
 
 workqueue_entry_t *threadpool_queue_work(threadpool_t *pool,
-                                         int (*fn)(void *, void *),
+                                         int (*fn)(const void *, void *),
                                          void (*reply_fn)(void *),
                                          void *arg);
 void *workqueue_entry_cancel(workqueue_entry_t *pending_work);
