@@ -147,37 +147,28 @@ command_process_cell(channel_t *chan, cell_t *cell)
   }
 #endif
 
-#ifdef KEEP_TIMING_STATS
-#define PROCESS_CELL(tp, cl, cn) STMT_BEGIN {                   \
-    ++num ## tp;                                                \
-    command_time_process_cell(cl, cn, & tp ## time ,            \
-                              command_process_ ## tp ## _cell);  \
-  } STMT_END
-#else
-#define PROCESS_CELL(tp, cl, cn) command_process_ ## tp ## _cell(cl, cn)
-#endif
 
   switch (cell->command) {
     case CELL_CREATE:
     case CELL_CREATE_FAST:
     case CELL_CREATE2:
       ++stats_n_create_cells_processed;
-      PROCESS_CELL(create, cell, chan);
+      command_process_create_cell(cell, chan);
       break;
     case CELL_CREATED:
     case CELL_CREATED_FAST:
     case CELL_CREATED2:
       ++stats_n_created_cells_processed;
-      PROCESS_CELL(created, cell, chan);
+      command_process_created_cell(cell, chan);
       break;
     case CELL_RELAY:
     case CELL_RELAY_EARLY:
       ++stats_n_relay_cells_processed;
-      PROCESS_CELL(relay, cell, chan);
+      command_process_relay_cell(cell, chan);
       break;
     case CELL_DESTROY:
       ++stats_n_destroy_cells_processed;
-      PROCESS_CELL(destroy, cell, chan);
+      command_process_destroy_cell(cell, chan);
       break;
     default:
       log_fn(LOG_INFO, LD_PROTOCOL,

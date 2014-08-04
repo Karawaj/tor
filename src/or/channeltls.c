@@ -960,15 +960,6 @@ channel_tls_handle_cell(cell_t *cell, or_connection_t *conn)
   channel_tls_t *chan;
   int handshaking;
 
-#ifdef KEEP_TIMING_STATS
-#define PROCESS_CELL(tp, cl, cn) STMT_BEGIN {                   \
-    ++num ## tp;                                                \
-    channel_tls_time_process_cell(cl, cn, & tp ## time ,            \
-                             channel_tls_process_ ## tp ## _cell);  \
-    } STMT_END
-#else
-#define PROCESS_CELL(tp, cl, cn) channel_tls_process_ ## tp ## _cell(cl, cn)
-#endif
 
   tor_assert(cell);
   tor_assert(conn);
@@ -1013,7 +1004,7 @@ channel_tls_handle_cell(cell_t *cell, or_connection_t *conn)
       break;
     case CELL_NETINFO:
       ++stats_n_netinfo_cells_processed;
-      PROCESS_CELL(netinfo, cell, chan);
+      channel_tls_process_netinfo_cell(cell, chan);
       break;
     case CELL_CREATE:
     case CELL_CREATE_FAST:
@@ -1178,7 +1169,7 @@ channel_tls_handle_var_cell(var_cell_t *var_cell, or_connection_t *conn)
   switch (var_cell->command) {
     case CELL_VERSIONS:
       ++stats_n_versions_cells_processed;
-      PROCESS_CELL(versions, var_cell, chan);
+      channel_tls_process_versions_cell(var_cell, chan);
       break;
     case CELL_VPADDING:
       ++stats_n_vpadding_cells_processed;
@@ -1186,15 +1177,15 @@ channel_tls_handle_var_cell(var_cell_t *var_cell, or_connection_t *conn)
       break;
     case CELL_CERTS:
       ++stats_n_certs_cells_processed;
-      PROCESS_CELL(certs, var_cell, chan);
+      channel_tls_process_certs_cell(var_cell, chan);
       break;
     case CELL_AUTH_CHALLENGE:
       ++stats_n_auth_challenge_cells_processed;
-      PROCESS_CELL(auth_challenge, var_cell, chan);
+      channel_tls_process_auth_challenge_cell(var_cell, chan);
       break;
     case CELL_AUTHENTICATE:
       ++stats_n_authenticate_cells_processed;
-      PROCESS_CELL(authenticate, var_cell, chan);
+      channel_tls_process_authenticate_cell(var_cell, chan);
       break;
     case CELL_AUTHORIZE:
       ++stats_n_authorize_cells_processed;

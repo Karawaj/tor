@@ -76,9 +76,10 @@ perftime(void)
 }
 #endif
 
-#define NANOCOUNT(start,end,iters) \
-  ( ((double)((end)-(start))) / (iters) )
-
+inline double calculate_average_time(uint64_t start, uint64_t end, uint64_t iters)
+{
+  return  (double)(end - start) / iters; 
+}
 /** Run AES performance benchmarks. */
 static void
 bench_aes(void)
@@ -103,7 +104,7 @@ bench_aes(void)
     tor_free(b1);
     tor_free(b2);
     printf("%d bytes: %.2f nsec per byte\n", len,
-           NANOCOUNT(start, end, iters*len));
+           calculate_average_time(start, end, iters*len));
   }
   crypto_cipher_free(c);
 }
@@ -133,7 +134,7 @@ bench_onion_TAP(void)
     crypto_dh_free(dh_out);
   }
   end = perftime();
-  printf("Client-side, part 1: %f usec.\n", NANOCOUNT(start, end, iters)/1e3);
+  printf("Client-side, part 1: %f usec.\n", calculate_average_time(start, end, iters)/1e3);
 
   onion_skin_TAP_create(key, &dh_out, os);
   start = perftime();
@@ -144,7 +145,7 @@ bench_onion_TAP(void)
   }
   end = perftime();
   printf("Server-side, key guessed right: %f usec\n",
-         NANOCOUNT(start, end, iters)/1e3);
+         calculate_average_time(start, end, iters)/1e3);
 
   start = perftime();
   for (i = 0; i < iters; ++i) {
@@ -154,7 +155,7 @@ bench_onion_TAP(void)
   }
   end = perftime();
   printf("Server-side, key guessed wrong: %f usec.\n",
-         NANOCOUNT(start, end, iters)/1e3);
+         calculate_average_time(start, end, iters)/1e3);
 
   start = perftime();
   for (i = 0; i < iters; ++i) {
@@ -168,7 +169,7 @@ bench_onion_TAP(void)
   }
   end = perftime();
   printf("Client-side, part 2: %f usec.\n",
-         NANOCOUNT(start, end, iters)/1e3);
+         calculate_average_time(start, end, iters)/1e3);
 
  done:
   crypto_pk_free(key);
@@ -204,7 +205,7 @@ bench_onion_ntor(void)
     state = NULL;
   }
   end = perftime();
-  printf("Client-side, part 1: %f usec.\n", NANOCOUNT(start, end, iters)/1e3);
+  printf("Client-side, part 1: %f usec.\n", calculate_average_time(start, end, iters)/1e3);
 
   state = NULL;
   onion_skin_ntor_create(nodeid, &keypair1.pubkey, &state, os);
@@ -216,7 +217,7 @@ bench_onion_ntor(void)
   }
   end = perftime();
   printf("Server-side: %f usec\n",
-         NANOCOUNT(start, end, iters)/1e3);
+         calculate_average_time(start, end, iters)/1e3);
 
   start = perftime();
   for (i = 0; i < iters; ++i) {
@@ -227,7 +228,7 @@ bench_onion_ntor(void)
   }
   end = perftime();
   printf("Client-side, part 2: %f usec.\n",
-         NANOCOUNT(start, end, iters)/1e3);
+         calculate_average_time(start, end, iters)/1e3);
 
   ntor_handshake_state_free(state);
   dimap_free(keymap, NULL);
@@ -255,7 +256,7 @@ bench_cell_aes(void)
     }
     end = perftime();
     printf("%d bytes, misaligned by %d: %.2f nsec per byte\n", len, misalign,
-           NANOCOUNT(start, end, iters*len));
+           calculate_average_time(start, end, iters*len));
   }
 
   crypto_cipher_free(c);
@@ -295,7 +296,7 @@ bench_dmap(void)
   }
   pt2 = perftime();
   printf("digestmap_set: %.2f ns per element\n",
-         NANOCOUNT(start, pt2, iters*elts));
+         calculate_average_time(start, pt2, iters*elts));
 
   for (i = 0; i < iters; ++i) {
     SMARTLIST_FOREACH(sl, const char *, cp, digestmap_get(dm, cp));
@@ -303,14 +304,14 @@ bench_dmap(void)
   }
   pt3 = perftime();
   printf("digestmap_get: %.2f ns per element\n",
-         NANOCOUNT(pt2, pt3, iters*elts*2));
+         calculate_average_time(pt2, pt3, iters*elts*2));
 
   for (i = 0; i < iters; ++i) {
     SMARTLIST_FOREACH(sl, const char *, cp, digestset_add(ds, cp));
   }
   pt4 = perftime();
   printf("digestset_add: %.2f ns per element\n",
-         NANOCOUNT(pt3, pt4, iters*elts));
+         calculate_average_time(pt3, pt4, iters*elts));
 
   for (i = 0; i < iters; ++i) {
     SMARTLIST_FOREACH(sl, const char *, cp, n += digestset_contains(ds, cp));
@@ -318,7 +319,7 @@ bench_dmap(void)
   }
   end = perftime();
   printf("digestset_contains: %.2f ns per element.\n",
-         NANOCOUNT(pt4, end, iters*elts*2));
+         calculate_average_time(pt4, end, iters*elts*2));
   /* We need to use this, or else the whole loop gets optimized out. */
   printf("Hits == %d\n", n);
 
@@ -355,7 +356,7 @@ bench_siphash(void)
     }
     end = perftime();
     printf("siphash24g(%d): %.2f ns per call\n",
-           lens[i], NANOCOUNT(start,end,N));
+           lens[i], calculate_average_time(start,end,N));
   }
 }
 
@@ -396,8 +397,8 @@ bench_cell_ops(void)
     end = perftime();
     printf("%sbound cells: %.2f ns per cell. (%.2f ns per byte of payload)\n",
            outbound?"Out":" In",
-           NANOCOUNT(start,end,iters),
-           NANOCOUNT(start,end,iters*CELL_PAYLOAD_SIZE));
+           calculate_average_time(start,end,iters),
+           calculate_average_time(start,end,iters*CELL_PAYLOAD_SIZE));
   }
 
   crypto_digest_free(or_circ->p_digest);
@@ -440,7 +441,7 @@ bench_dh(void)
   }
   end = perftime();
   printf("Complete DH handshakes (1024 bit, public and private ops):\n"
-         "      %f millisec each.\n", NANOCOUNT(start, end, iters)/1e6);
+         "      %f millisec each.\n", calculate_average_time(start, end, iters)/1e6);
 }
 
 #if (!defined(OPENSSL_NO_EC)                    \
@@ -481,7 +482,7 @@ bench_ecdh_impl(int nid, const char *name)
   }
   end = perftime();
   printf("Complete ECDH %s handshakes (2 public and 2 private ops):\n"
-         "      %f millisec each.\n", name, NANOCOUNT(start, end, iters)/1e6);
+         "      %f millisec each.\n", name, calculate_average_time(start, end, iters)/1e6);
 }
 
 static void
