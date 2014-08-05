@@ -11,7 +11,8 @@
 
 #include "or.h"
 #include "circuitmux.h"
-
+#include "../common/workqueue.h"
+#include "config.h"
 /* Channel handler function pointer typedefs */
 typedef void (*channel_listener_fn_ptr)(channel_listener_t *, channel_t *);
 typedef void (*channel_cell_handler_fn_ptr)(channel_t *, cell_t *);
@@ -372,6 +373,7 @@ void channel_listener_queue_incoming(channel_listener_t *listener,
 
 /* Incoming cell handling */
 void channel_process_cells(channel_t *chan);
+void multithread_process_cells(channel_t *chan);
 void channel_queue_cell(channel_t *chan, cell_t *cell);
 void channel_queue_var_cell(channel_t *chan, var_cell_t *var_cell);
 

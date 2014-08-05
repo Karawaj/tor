@@ -45,5 +45,7 @@ void replyqueue_process(replyqueue_t *queue);
 
 int threadpool_shutdown(threadpool_t* tp);
 
+void no_reply(void *);
+
 #endif
 

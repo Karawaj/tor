@@ -448,3 +448,8 @@ int threadpool_shutdown(threadpool_t* pool)
 
   return 0;
 }
+
+void no_reply(void *task)
+{
+    
+}

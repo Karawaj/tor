@@ -1057,7 +1057,7 @@ channel_set_cell_handlers(channel_t *chan,
   if (! TOR_SIMPLEQ_EMPTY(&chan->incoming_queue) &&
       try_again &&
       (chan->cell_handler ||
-       chan->var_cell_handler)) channel_process_cells(chan);
+       chan->var_cell_handler)) multithread_process_cells(chan);
 }
 
 /*
@@ -1948,7 +1948,7 @@ channel_change_state(channel_t *chan, channel_state_t to_state)
 
     /* Check for queued cells to process */
     if (! TOR_SIMPLEQ_EMPTY(&chan->incoming_queue))
-      channel_process_cells(chan);
+      multithread_process_cells(chan);
     if (! TOR_SIMPLEQ_EMPTY(&chan->outgoing_queue))
       channel_flush_cells(chan);
   } else if (to_state == CHANNEL_STATE_CLOSED ||
@@ -2449,7 +2449,6 @@ channel_listener_queue_incoming(channel_listener_t *listener,
     if (listener->listener) channel_listener_process_incoming(listener);
   }
 }
-
 /**
  * Process queued incoming cells
  *
@@ -2515,7 +2514,35 @@ channel_process_cells(channel_t *chan)
     }
   }
 }
+/*
+ * Warp on channel_process_cells function for use in threadpool
+ */
 
+int channel_process_cells_warp(const void *state, void *chan)
+{
+    //todo: chan mutex lock
+    channel_process_cells(chan);
+    return 0;
+}
+
+/*
+ * Adding channel_process to proccess in threadpool
+ */
+void multithread_process_cells(channel_t *chan)
+{ 
+  static replyqueue_t *replyqueue = NULL;
+  static threadpool_t *threadpool = NULL;
+
+  if (replyqueue == NULL)
+  {
+    replyqueue = replyqueue_new(0);
+    threadpool = threadpool_new(get_num_cpus(get_options()) + 1,
+                          replyqueue,
+                          NULL,
+                          NULL);
+  }
+  threadpool_queue_work(threadpool, channel_process_cells_warp, no_reply, chan);
+}
 /**
  * Queue incoming cell
  *
@@ -2564,7 +2591,7 @@ channel_queue_cell(channel_t *chan, cell_t *cell)
     TOR_SIMPLEQ_INSERT_TAIL(&chan->incoming_queue, q, next);
     if (chan->cell_handler ||
         chan->var_cell_handler) {
-      channel_process_cells(chan);
+      multithread_process_cells(chan);
     }
   }
 }
@@ -2617,7 +2644,7 @@ channel_queue_var_cell(channel_t *chan, var_cell_t *var_cell)
     TOR_SIMPLEQ_INSERT_TAIL(&chan->incoming_queue, q, next);
     if (chan->cell_handler ||
         chan->var_cell_handler) {
-      channel_process_cells(chan);
+      multithread_process_cells(chan);
     }
   }
 }
