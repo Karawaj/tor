@@ -28,6 +28,7 @@
 #include "rephist.h"
 #include "router.h"
 #include "routerlist.h"
+#include "compat_threads.h"
 
 /* Cell queue structure */
 
@@ -745,6 +746,8 @@ channel_init(channel_t *chan)
 
   /* Timestamp it */
   channel_timestamp_created(chan);
+  
+  tor_mutex_init(&chan->lock);
 }
 
 /**
@@ -776,6 +779,8 @@ void
 channel_free(channel_t *chan)
 {
   if (!chan) return;
+  
+  tor_mutex_uninit(&chan->lock);
 
   /* It must be closed or errored */
   tor_assert(chan->state == CHANNEL_STATE_CLOSED ||
@@ -2520,8 +2525,10 @@ channel_process_cells(channel_t *chan)
 
 int channel_process_cells_warp(const void *state, void *chan)
 {
-    //todo: chan mutex lock
+    channel_t *channel = chan;
+    tor_mutex_acquire(&channel->lock);
     channel_process_cells(chan);
+    tor_mutex_release(&channel->lock);
     return 0;
 }
 

@@ -13,6 +13,7 @@
 #include "circuitmux.h"
 #include "../common/workqueue.h"
 #include "config.h"
+#include "compat_threads.h"
 /* Channel handler function pointer typedefs */
 typedef void (*channel_listener_fn_ptr)(channel_listener_t *, channel_t *);
 typedef void (*channel_cell_handler_fn_ptr)(channel_t *, cell_t *);
@@ -197,6 +198,9 @@ struct channel_s {
   /** Channel counters for cell channels */
   uint64_t n_cells_recved;
   uint64_t n_cells_xmitted;
+  /** Lock mutex*/
+  tor_mutex_t lock;
+  
 };
 
 struct channel_listener_s {
