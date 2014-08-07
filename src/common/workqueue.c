@@ -158,15 +158,13 @@ worker_thread_main(void *thread_)
   workerthread_t *thread = thread_;
   workqueue_entry_t *work;
   int result;
-
   while (1) {
+    work = threadpool_get_work(thread->pool);
     tor_mutex_acquire(&thread->lock);
     if (PREDICT_LIKELY(thread->is_shutdown == 0))
     {  
-      work = threadpool_get_work(thread->pool);
       if(work != NULL) {
         work->pending = 0;
-
         result = work->fn(thread->pool->state, work->arg);
 
         /* Queue the reply for the main thread. */

@@ -473,7 +473,7 @@ bench_ecdh_p224(void)
 }
 #endif
 
-int big_task(void *state, void *args)
+int big_task(const void *state, void *args)
 {
     volatile int iter = 1 << 25, x = 0;
     while (--iter)
@@ -484,7 +484,7 @@ int big_task(void *state, void *args)
     return 0;
 }
 
-int small_task(void *state, void *args)
+int small_task(const void *state, void *args)
 {
     volatile int iter = 1 << 5, x = 0;
     while (--iter)
