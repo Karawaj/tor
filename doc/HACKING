@@ -114,6 +114,26 @@ valgrind --leak-check=yes --error-limit=no --show-reachable=yes src/or/tor
 pass --undef-value-errors=no to valgrind, or rebuild your openssl
 with -DPURIFY.)
 
+Running lcov for unit test coverage
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Lcov is a utility that generates pretty HTML reports of test code coverage.
+To generate such a report:
+
+-----
+   ./configure --enable-coverage
+   make
+   make coverage-html
+   $BROWSER ./coverage_html/index.html
+-----
+
+This will run the tor unit test suite `./src/test/test` and generate the HTML
+coverage code report under the directory ./coverage_html/. To change the
+output directory, use `make coverage-html HTML_COVER_DIR=./funky_new_cov_dir`.
+
+Coverage diffs using lcov are not currently implemented, but are being
+investigated (as of July 2014).
+
 Running gcov for unit test coverage
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -460,7 +480,7 @@ interesting and understandable.
    Standard idioms:
      "Fixes bug 9999; bugfix on 0.3.3.3-alpha."
 
-   One period after a space.
+   One space after a period.
 
    Make stuff very terse
 
@@ -536,4 +556,10 @@ changelog to tor-talk or tor-announce.
 
   (We might be moving to faster announcements, but don't announce until
   the website is at least updated.)
+
+13) If it's a stable release, bump the version number in the maint-x.y.z
+    branch to "newversion-dev", and do a "merge -s ours" merge to avoid
+    taking that change into master.  Do a similar 'merge -s theirs'
+    merge to get the change (and only that change) into release.  (Some
+    of the build scripts require that maint merge cleanly into release.)
 

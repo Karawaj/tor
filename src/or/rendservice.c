@@ -656,6 +656,35 @@ rend_service_load_all_keys(void)
   return 0;
 }
 
+/** Add to <b>lst</b> every filename used by <b>s</b>. */
+static void
+rend_service_add_filenames_to_list(smartlist_t *lst, const rend_service_t *s)
+{
+  tor_assert(lst);
+  tor_assert(s);
+  smartlist_add_asprintf(lst, "%s"PATH_SEPARATOR"private_key",
+                         s->directory);
+  smartlist_add_asprintf(lst, "%s"PATH_SEPARATOR"hostname",
+                         s->directory);
+  smartlist_add_asprintf(lst, "%s"PATH_SEPARATOR"client_keys",
+                         s->directory);
+}
+
+/** Add to <b>open_lst</b> every filename used by a configured hidden service,
+ * and to <b>stat_lst</b> every directory used by a configured hidden
+ * service */
+void
+rend_services_add_filenames_to_lists(smartlist_t *open_lst,
+                                     smartlist_t *stat_lst)
+{
+  if (!rend_service_list)
+    return;
+  SMARTLIST_FOREACH_BEGIN(rend_service_list, rend_service_t *, s) {
+    rend_service_add_filenames_to_list(open_lst, s);
+    smartlist_add(stat_lst, tor_strdup(s->directory));
+  } SMARTLIST_FOREACH_END(s);
+}
+
 /** Load and/or generate private keys for the hidden service <b>s</b>,
  * possibly including keys for client authorization.  Return 0 on success, -1
  * on failure. */

@@ -52,7 +52,9 @@ double fabs(double x);
 #include "rendcommon.h"
 #include "test.h"
 #include "torgzip.h"
+#ifdef ENABLE_MEMPOOLS
 #include "mempool.h"
+#endif
 #include "memarea.h"
 #include "onion.h"
 #include "onion_ntor.h"
@@ -104,11 +106,18 @@ setup_directory(void)
   {
     char buf[MAX_PATH];
     const char *tmp = buf;
+    const char *extra_backslash = "";
     /* If this fails, we're probably screwed anyway */
     if (!GetTempPathA(sizeof(buf),buf))
-      tmp = "c:\\windows\\temp";
+      tmp = "c:\\windows\\temp\\";
+    if (strcmpend(tmp, "\\")) {
+      /* According to MSDN, it should be impossible for GetTempPath to give us
+       * an answer that doesn't end with \.  But let's make sure. */
+      extra_backslash = "\\";
+    }
     tor_snprintf(temp_dir, sizeof(temp_dir),
-                 "%s\\tor_test_%d_%s", tmp, (int)getpid(), rnd32);
+                 "%s%stor_test_%d_%s", tmp, extra_backslash,
+                 (int)getpid(), rnd32);
     r = mkdir(temp_dir);
   }
 #else
@@ -1304,6 +1313,7 @@ extern struct testcase_t circuitmux_tests[];
 extern struct testcase_t cell_queue_tests[];
 extern struct testcase_t options_tests[];
 extern struct testcase_t socks_tests[];
+extern struct testcase_t entrynodes_tests[];
 extern struct testcase_t extorport_tests[];
 extern struct testcase_t controller_event_tests[];
 extern struct testcase_t logging_tests[];
@@ -1335,6 +1345,7 @@ static struct testgroup_t testgroups[] = {
   { "circuitlist/", circuitlist_tests },
   { "circuitmux/", circuitmux_tests },
   { "options/", options_tests },
+  { "entrynodes/", entrynodes_tests },
   { "extorport/", extorport_tests },
   { "control/", controller_event_tests },
   { "hs/", hs_tests },

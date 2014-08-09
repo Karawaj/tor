@@ -1468,7 +1468,7 @@ dirserv_thinks_router_is_hs_dir(const routerinfo_t *router,
    * to fix the bug was 0.2.2.25-alpha. */
   return (router->wants_to_be_hs_dir && router->dir_port &&
           uptime >= get_options()->MinUptimeHidServDirectoryV2 &&
-          node->is_running);
+          router_is_active(router, node, now));
 }
 
 /** Don't consider routers with less bandwidth than this when computing
@@ -1588,7 +1588,7 @@ dirserv_compute_performance_thresholds(routerlist_t *rl,
     /* (Now bandwidths is sorted.) */
     if (fast_bandwidth_kb < ROUTER_REQUIRED_MIN_BANDWIDTH/(2 * 1000))
       fast_bandwidth_kb = bandwidths_kb[n_active/4];
-    guard_bandwidth_including_exits_kb = bandwidths_kb[(n_active-1)/2];
+    guard_bandwidth_including_exits_kb = bandwidths_kb[n_active*3/4];
     guard_tk = find_nth_long(tks, n_active, n_active/8);
   }
 
@@ -1646,7 +1646,8 @@ dirserv_compute_performance_thresholds(routerlist_t *rl,
 
   if (n_active_nonexit) {
     guard_bandwidth_excluding_exits_kb =
-      median_uint32(bandwidths_excluding_exits_kb, n_active_nonexit);
+      find_nth_uint32(bandwidths_excluding_exits_kb,
+                      n_active_nonexit, n_active_nonexit*3/4);
   }
 
   log_info(LD_DIRSERV,

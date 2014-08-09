@@ -114,6 +114,12 @@
 /* Only use the linux prctl;  the IRIX prctl is totally different */
 #include <sys/prctl.h>
 #endif
+#ifdef TOR_UNIT_TESTS
+#if !defined(HAVE_USLEEP) && defined(HAVE_SYS_SELECT_H)
+/* as fallback implementation for tor_sleep_msec */
+#include <sys/select.h>
+#endif
+#endif
 
 #include "torlog.h"
 #include "util.h"
@@ -995,6 +1001,23 @@ tor_fd_setpos(int fd, off_t pos)
   return _lseek(fd, pos, SEEK_SET) < 0 ? -1 : 0;
 #else
   return lseek(fd, pos, SEEK_SET) < 0 ? -1 : 0;
+#endif
+}
+
+/** Replacement for ftruncate(fd, 0): move to the front of the file and remove
+ * all the rest of the file. Return -1 on error, 0 on success. */
+int
+tor_ftruncate(int fd)
+{
+  /* Rumor has it that some versions of ftruncate do not move the file pointer.
+   */
+  if (tor_fd_setpos(fd, 0) < 0)
+    return -1;
+
+#ifdef _WIN32
+  return _chsize(fd, 0);
+#else
+  return ftruncate(fd, 0);
 #endif
 }
 
@@ -2479,13 +2502,11 @@ get_uname(void)
                          "Unrecognized version of Windows [major=%d,minor=%d]",
                          (int)info.dwMajorVersion,(int)info.dwMinorVersion);
         }
-#if !defined (WINCE)
 #ifdef VER_NT_SERVER
       if (info.wProductType == VER_NT_SERVER ||
           info.wProductType == VER_NT_DOMAIN_CONTROLLER) {
         strlcat(uname_result, " [server]", sizeof(uname_result));
       }
-#endif
 #endif
 #else
         strlcpy(uname_result, "Unknown platform", sizeof(uname_result));
@@ -2691,15 +2712,8 @@ tor_gettimeofday(struct timeval *timeval)
     uint64_t ft_64;
     FILETIME ft_ft;
   } ft;
-#if defined (WINCE)
-  /* wince do not have GetSystemTimeAsFileTime */
-  SYSTEMTIME stime;
-  GetSystemTime(&stime);
-  SystemTimeToFileTime(&stime,&ft.ft_ft);
-#else
   /* number of 100-nsec units since Jan 1, 1601 */
   GetSystemTimeAsFileTime(&ft.ft_ft);
-#endif
   if (ft.ft_64 < EPOCH_BIAS) {
     log_err(LD_GENERAL,"System time is before 1970; failing.");
     exit(1);
@@ -2725,7 +2739,7 @@ tor_gettimeofday(struct timeval *timeval)
   return;
 }
 
-#if defined(TOR_IS_MULTITHREADED) && !defined(_WIN32)
+#if !defined(_WIN32)
 /** Defined iff we need to add locks when defining fake versions of reentrant
  * versions of time-related functions. */
 #define TIME_FNS_NEED_LOCKS
@@ -2985,7 +2999,6 @@ tor_get_thread_id(void)
 }
 #endif
 
-#ifdef TOR_IS_MULTITHREADED
 /** Return a newly allocated, ready-for-use mutex. */
 tor_mutex_t *
 tor_mutex_new(void)
@@ -3003,7 +3016,6 @@ tor_mutex_free(tor_mutex_t *m)
   tor_mutex_uninit(m);
   tor_free(m);
 }
-#endif
 
 /* Conditions. */
 #ifdef USE_PTHREADS
@@ -3555,4 +3567,24 @@ get_total_system_memory(size_t *mem_out)
 
   return 0;
 }
+
+#ifdef TOR_UNIT_TESTS
+/** Delay for <b>msec</b> milliseconds.  Only used in tests. */
+void
+tor_sleep_msec(int msec)
+{
+#ifdef _WIN32
+  Sleep(msec);
+#elif defined(HAVE_USLEEP)
+  sleep(msec / 1000);
+  /* Some usleep()s hate sleeping more than 1 sec */
+  usleep((msec % 1000) * 1000);
+#elif defined(HAVE_SYS_SELECT_H)
+  struct timeval tv = { msec / 1000, (msec % 1000) * 1000};
+  select(0, NULL, NULL, NULL, &tv);
+#else
+  sleep(CEIL_DIV(msec, 1000));
+#endif
+}
+#endif
 

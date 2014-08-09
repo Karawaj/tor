@@ -16,10 +16,6 @@
 
 #include "orconfig.h"
 
-#if defined (WINCE)
-#include <WinSock2.h>
-#endif
-
 #include <assert.h>
 #ifdef _WIN32 /*wrkard for dtls1.h >= 0.9.8m of "#include <winsock.h>"*/
  #ifndef _WIN32_WINNT
@@ -1318,10 +1314,12 @@ tor_tls_context_new(crypto_pk_t *identity, unsigned int key_lifetime,
     SSL_CTX_set_options(result->ctx,
                         SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION);
   }
+#ifndef OPENSSL_NO_COMP
   /* Don't actually allow compression; it uses ram and time, but the data
    * we transmit is all encrypted anyway. */
   if (result->ctx->comp_methods)
     result->ctx->comp_methods = NULL;
+#endif
 #ifdef SSL_MODE_RELEASE_BUFFERS
   SSL_CTX_set_mode(result->ctx, SSL_MODE_RELEASE_BUFFERS);
 #endif
@@ -1477,10 +1475,13 @@ prune_v2_cipher_list(void)
 
   inp = outp = v2_cipher_list;
   while (*inp) {
-    unsigned char cipherid[2];
+    unsigned char cipherid[3];
     const SSL_CIPHER *cipher;
     /* Is there no better way to do this? */
     set_uint16(cipherid, htons(*inp));
+    cipherid[2] = 0; /* If ssl23_get_cipher_by_char finds no cipher starting
+                      * with a two-byte 'cipherid', it may look for a v2
+                      * cipher with the appropriate 3 bytes. */
     cipher = m->get_cipher_by_char(cipherid);
     if (cipher) {
       tor_assert((cipher->id & 0xffff) == *inp);

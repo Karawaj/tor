@@ -197,9 +197,9 @@ dir_conn_purpose_to_string(int purpose)
   return "(unknown)";
 }
 
-/** Return true iff <b>identity_digest</b> is the digest of a router we
- * believe to support extrainfo downloads.  (If <b>is_authority</b> we do
- * additional checking that's only valid for authorities.) */
+/** Return true iff <b>identity_digest</b> is the digest of a router which
+ * says that it caches extrainfos.  (If <b>is_authority</b> we always
+ * believe that to be true.) */
 int
 router_supports_extrainfo(const char *identity_digest, int is_authority)
 {
@@ -349,7 +349,7 @@ should_use_directory_guards(const or_options_t *options)
   return 1;
 }
 
-/** Pick an unconsetrained directory server from among our guards, the latest
+/** Pick an unconstrained directory server from among our guards, the latest
  * networkstatus, or the fallback dirservers, for use in downloading
  * information of type <b>type</b>, and return its routerstatus. */
 static const routerstatus_t *

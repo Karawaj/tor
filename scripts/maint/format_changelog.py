@@ -116,7 +116,7 @@ def wrap_graf(words, prefix_len1=0, prefix_len2=0, width=72):
     return lines
 
 def hyphenateable(word):
-    if re.match(r'^[^\d\-].*-', word):
+    if re.match(r'^[^\d\-]\D*-', word):
         stripped = re.sub(r'^\W+','',word)
         stripped = re.sub(r'\W+$','',word)
         return stripped not in NO_HYPHENATE
@@ -218,7 +218,7 @@ class ChangeLog(object):
         elif tp == TP_ITEMBODY:
             if self.curgraf is None:
                 self.curgraf = []
-                self.cursection[2][1][-1].append(self.curgraf)
+                self.cursection[2][-1][1].append(self.curgraf)
             self.curgraf.append(line)
 
         else:
@@ -270,7 +270,16 @@ class ChangeLog(object):
 CL = ChangeLog()
 parser = head_parser
 
-sys.stdin = open('ChangeLog', 'r')
+if len(sys.argv) == 1:
+    fname = 'ChangeLog'
+else:
+    fname = sys.argv[1]
+
+fname_new = fname+".new"
+
+sys.stdin = open(fname, 'r')
+
+nextline = None
 
 for line in sys.stdin:
     line = line.rstrip()
@@ -286,13 +295,14 @@ for line in sys.stdin:
 
 CL.lint()
 
-sys.stdout = open('ChangeLog.new', 'w')
+sys.stdout = open(fname_new, 'w')
 
 CL.dump()
 
-print nextline
+if nextline is not None:
+    print nextline
 
 for line in sys.stdin:
     sys.stdout.write(line)
 
-os.rename('ChangeLog.new', 'ChangeLog')
+os.rename(fname_new, fname)

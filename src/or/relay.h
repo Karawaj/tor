@@ -42,9 +42,11 @@ extern uint64_t stats_n_data_bytes_packaged;
 extern uint64_t stats_n_data_cells_received;
 extern uint64_t stats_n_data_bytes_received;
 
+#ifdef ENABLE_MEMPOOLS
 void init_cell_pool(void);
 void free_cell_pool(void);
 void clean_cell_pool(void);
+#endif /* ENABLE_MEMPOOLS */
 void dump_cell_pool_usage(int severity);
 size_t packed_cell_mem_cost(void);
 
@@ -79,6 +81,8 @@ void stream_choice_seed_weak_rng(void);
 
 int relay_crypt(circuit_t *circ, cell_t *cell, cell_direction_t cell_direction,
                 crypt_path_t **layer_hint, char *recognized);
+
+circid_t packed_cell_get_circid(const packed_cell_t *cell, int wide_circ_ids);
 
 #ifdef RELAY_PRIVATE
 STATIC int connected_cell_parse(const relay_header_t *rh, const cell_t *cell,

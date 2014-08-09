@@ -91,21 +91,6 @@ struct sandbox_cfg_elem {
   struct sandbox_cfg_elem *next;
 };
 
-/**
- * Structure used for keeping a linked list of getaddrinfo pre-recorded
- * results.
- */
-struct sb_addr_info_el {
-  /** Name of the address info result. */
-  char *name;
-  /** Pre-recorded getaddrinfo result. */
-  struct addrinfo *info;
-  /** Next element in the list. */
-  struct sb_addr_info_el *next;
-};
-/** Typedef to structure used to manage an addrinfo list. */
-typedef struct sb_addr_info_el sb_addr_info_t;
-
 /** Function pointer defining the prototype of a filter function.*/
 typedef int (*sandbox_filter_func_t)(scmp_filter_ctx ctx,
     sandbox_cfg_t *filter);
@@ -119,22 +104,6 @@ typedef struct {
   sandbox_cfg_t *filter_dynamic;
 } sandbox_t;
 
-/**
- * Linux 32 bit definitions
- */
-#if defined(__i386__)
-
-#define REG_SYSCALL REG_EAX
-
-/**
- * Linux 64 bit definitions
- */
-#elif defined(__x86_64__)
-
-#define REG_SYSCALL REG_RAX
-
-#endif
-
 #endif // USE_LIBSECCOMP
 
 #ifdef USE_LIBSECCOMP
@@ -146,11 +115,16 @@ struct addrinfo;
 int sandbox_getaddrinfo(const char *name, const char *servname,
                         const struct addrinfo *hints,
                         struct addrinfo **res);
+#define sandbox_freeaddrinfo(addrinfo) ((void)0)
+void sandbox_free_getaddrinfo_cache(void);
 #else
 #define sandbox_getaddrinfo(name, servname, hints, res)  \
   getaddrinfo((name),(servname), (hints),(res))
 #define sandbox_add_addrinfo(name) \
   ((void)(name))
+#define sandbox_freeaddrinfo(addrinfo) \
+  freeaddrinfo((addrinfo))
+#define sandbox_free_getaddrinfo_cache()
 #endif
 
 #ifdef USE_LIBSECCOMP
@@ -198,6 +172,7 @@ int sandbox_cfg_allow_openat_filename(sandbox_cfg_t **cfg, char *file);
  */
 int sandbox_cfg_allow_openat_filename_array(sandbox_cfg_t **cfg, ...);
 
+#if 0
 /**
  * Function used to add a execve allowed filename to a supplied configuration.
  * The (char*) specifies the path to the allowed file; that pointer is stolen.
@@ -211,6 +186,7 @@ int sandbox_cfg_allow_execve(sandbox_cfg_t **cfg, const char *com);
  *  one must be NULL.
  */
 int sandbox_cfg_allow_execve_array(sandbox_cfg_t **cfg, ...);
+#endif
 
 /**
  * Function used to add a stat/stat64 allowed filename to a configuration.

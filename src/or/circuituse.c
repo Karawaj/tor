@@ -783,6 +783,10 @@ circuit_expire_building(void)
   }
 }
 
+/** For debugging #8387: track when we last called
+ * circuit_expire_old_circuits_clientside. */
+static time_t last_expired_clientside_circuits = 0;
+
 /**
  * As a diagnostic for bug 8387, log information about how many one-hop
  * circuits we have around that have been there for at least <b>age</b>
@@ -792,7 +796,8 @@ void
 circuit_log_ancient_one_hop_circuits(int age)
 {
 #define MAX_ANCIENT_ONEHOP_CIRCUITS_TO_LOG 10
-  time_t cutoff = time(NULL) - age;
+  time_t now = time(NULL);
+  time_t cutoff = now - age;
   int n_found = 0;
   smartlist_t *log_these = smartlist_new();
   const circuit_t *circ;
@@ -823,19 +828,79 @@ circuit_log_ancient_one_hop_circuits(int age)
 
   SMARTLIST_FOREACH_BEGIN(log_these, const origin_circuit_t *, ocirc) {
     char created[ISO_TIME_LEN+1];
+    int stream_num;
+    const edge_connection_t *conn;
+    char *dirty = NULL;
     circ = TO_CIRCUIT(ocirc);
+
     format_local_iso_time(created,
                           (time_t)circ->timestamp_created.tv_sec);
 
+    if (circ->timestamp_dirty) {
+      char dirty_since[ISO_TIME_LEN+1];
+      format_local_iso_time(dirty_since, circ->timestamp_dirty);
+
+      tor_asprintf(&dirty, "Dirty since %s (%ld seconds vs %ld-second cutoff)",
+                   dirty_since, (long)(now - circ->timestamp_dirty),
+                   (long) get_options()->MaxCircuitDirtiness);
+    } else {
+      dirty = tor_strdup("Not marked dirty");
+    }
+
     log_notice(LD_HEARTBEAT, "  #%d created at %s. %s, %s. %s for close. "
-               "%s for new conns.",
+               "%s for new conns. %s.",
                ocirc_sl_idx,
                created,
                circuit_state_to_string(circ->state),
                circuit_purpose_to_string(circ->purpose),
                circ->marked_for_close ? "Marked" : "Not marked",
-               ocirc->unusable_for_new_conns ? "Not usable" : "usable");
+               ocirc->unusable_for_new_conns ? "Not usable" : "usable",
+               dirty);
+    tor_free(dirty);
+
+    stream_num = 0;
+    for (conn = ocirc->p_streams; conn; conn = conn->next_stream) {
+      const connection_t *c = TO_CONN(conn);
+      char stream_created[ISO_TIME_LEN+1];
+      if (++stream_num >= 5)
+        break;
+
+      format_local_iso_time(stream_created, c->timestamp_created);
+
+      log_notice(LD_HEARTBEAT, "     Stream#%d created at %s. "
+                 "%s conn in state %s. "
+                 "%s for close (%s:%d). Hold-open is %sset. "
+                 "Has %ssent RELAY_END. %s on circuit.",
+                 stream_num,
+                 stream_created,
+                 conn_type_to_string(c->type),
+                 conn_state_to_string(c->type, c->state),
+                 c->marked_for_close ? "Marked" : "Not marked",
+                 c->marked_for_close_file ? c->marked_for_close_file : "--",
+                 c->marked_for_close,
+                 c->hold_open_until_flushed ? "" : "not ",
+                 conn->edge_has_sent_end ? "" : "not ",
+                 conn->edge_blocked_on_circ ? "Blocked" : "Not blocked");
+      if (! c->linked_conn)
+        continue;
+
+      c = c->linked_conn;
+
+      log_notice(LD_HEARTBEAT, "        Linked to %s connection in state %s "
+                 "(Purpose %d). %s for close (%s:%d). Hold-open is %sset. ",
+                 conn_type_to_string(c->type),
+                 conn_state_to_string(c->type, c->state),
+                 c->purpose,
+                 c->marked_for_close ? "Marked" : "Not marked",
+                 c->marked_for_close_file ? c->marked_for_close_file : "--",
+                 c->marked_for_close,
+                 c->hold_open_until_flushed ? "" : "not ");
+    }
   } SMARTLIST_FOREACH_END(ocirc);
+
+  log_notice(LD_HEARTBEAT, "It has been %ld seconds since I last called "
+             "circuit_expire_old_circuits_clientside().",
+             (long)(now - last_expired_clientside_circuits));
 
  done:
   smartlist_free(log_these);
@@ -1032,7 +1097,6 @@ circuit_predict_and_launch_new(void)
 void
 circuit_build_needed_circs(time_t now)
 {
-  static time_t time_to_new_circuit = 0;
   const or_options_t *options = get_options();
 
   /* launch a new circ for any pending streams that need one */
@@ -1041,14 +1105,34 @@ circuit_build_needed_circs(time_t now)
   /* make sure any hidden services have enough intro points */
   rend_services_introduce();
 
-  if (time_to_new_circuit < now) {
+  circuit_expire_old_circs_as_needed(now);
+
+  if (!options->DisablePredictedCircuits)
+    circuit_predict_and_launch_new();
+}
+
+/**
+ * Called once a second either directly or from
+ * circuit_build_needed_circs(). As appropriate (once per NewCircuitPeriod)
+ * resets failure counts and expires old circuits.
+ */
+void
+circuit_expire_old_circs_as_needed(time_t now)
+{
+  static time_t time_to_expire_and_reset = 0;
+
+  if (time_to_expire_and_reset < now) {
     circuit_reset_failure_count(1);
-    time_to_new_circuit = now + options->NewCircuitPeriod;
+    time_to_expire_and_reset = now + get_options()->NewCircuitPeriod;
     if (proxy_mode(get_options()))
       addressmap_clean(now);
     circuit_expire_old_circuits_clientside();
 
 #if 0 /* disable for now, until predict-and-launch-new can cull leftovers */
+
+    /* If we ever re-enable, this has to move into
+     * circuit_build_needed_circs */
+
     circ = circuit_get_youngest_clean_open(CIRCUIT_PURPOSE_C_GENERAL);
     if (get_options()->RunTesting &&
         circ &&
@@ -1058,8 +1142,6 @@ circuit_build_needed_circs(time_t now)
     }
 #endif
   }
-  if (!options->DisablePredictedCircuits)
-    circuit_predict_and_launch_new();
 }
 
 /** If the stream <b>conn</b> is a member of any of the linked
@@ -1146,6 +1228,7 @@ circuit_expire_old_circuits_clientside(void)
 
   tor_gettimeofday(&now);
   cutoff = now;
+  last_expired_clientside_circuits = now.tv_sec;
 
   if (! circuit_build_times_disabled() &&
       circuit_build_times_needs_circuits(get_circuit_build_times())) {

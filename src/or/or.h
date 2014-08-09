@@ -42,9 +42,6 @@
 #include <sys/param.h> /* FreeBSD needs this to know what version it is */
 #endif
 #include "torint.h"
-#ifdef HAVE_SYS_WAIT_H
-#include <sys/wait.h>
-#endif
 #ifdef HAVE_SYS_FCNTL_H
 #include <sys/fcntl.h>
 #endif
@@ -1488,13 +1485,14 @@ typedef struct or_connection_t {
 
   uint16_t link_proto; /**< What protocol version are we using? 0 for
                         * "none negotiated yet." */
-
+  uint16_t idle_timeout; /**< How long can this connection sit with no
+                          * circuits on it before we close it? Based on
+                          * IDLE_CIRCUIT_TIMEOUT_{NON,}CANONICAL and
+                          * on is_canonical, randomized. */
   or_handshake_state_t *handshake_state; /**< If we are setting this connection
                                           * up, state information to do so. */
 
   time_t timestamp_lastempty; /**< When was the outbuf last completely empty?*/
-  time_t timestamp_last_added_nonpadding; /** When did we last add a
-                                           * non-padding cell to the outbuf? */
 
   /* bandwidth* and *_bucket only used by ORs in OPEN state: */
   int bandwidthrate; /**< Bytes/s added to the bucket. (OPEN ORs only.) */
@@ -3404,6 +3402,8 @@ typedef struct {
 
   int LogMessageDomains; /**< Boolean: Should we log the domain(s) in which
                           * each log message occurs? */
+  int TruncateLogFile; /**< Boolean: Should we truncate the log file
+                            before we start writing? */
 
   char *DebugLogFile; /**< Where to send verbose log messages. */
   char *DataDirectory; /**< OR only: where to store long-term data. */

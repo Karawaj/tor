@@ -448,9 +448,10 @@ trusted_dirs_flush_certs_to_disk(void)
   trusted_dir_servers_certs_changed = 0;
 }
 
-/** Remove all v3 authority certificates that have been superseded for more
- * than 48 hours.  (If the most recent cert was published more than 48 hours
- * ago, then we aren't going to get any consensuses signed with older
+/** Remove all expired v3 authority certificates that have been superseded for
+ * more than 48 hours or, if not expired, that were published more than 7 days
+ * before being superseded. (If the most recent cert was published more than 48
+ * hours ago, then we aren't going to get any consensuses signed with older
  * keys.) */
 static void
 trusted_dirs_remove_old_certs(void)
@@ -488,6 +489,7 @@ trusted_dirs_remove_old_certs(void)
       } SMARTLIST_FOREACH_END(cert);
     }
   } DIGESTMAP_FOREACH_END;
+#undef DEAD_CERT_LIFETIME
 #undef OLD_CERT_LIFETIME
 
   trusted_dirs_flush_certs_to_disk();
@@ -1365,7 +1367,7 @@ router_pick_trusteddirserver(dirinfo_type_t type, int flags)
   return router_pick_dirserver_generic(trusted_dir_servers, type, flags);
 }
 
-/** Try to find a running fallback directory Flags are as for
+/** Try to find a running fallback directory. Flags are as for
  * router_pick_directory_server.
  */
 const routerstatus_t *
@@ -1374,7 +1376,7 @@ router_pick_fallback_dirserver(dirinfo_type_t type, int flags)
   return router_pick_dirserver_generic(fallback_dir_servers, type, flags);
 }
 
-/** Try to find a running fallback directory Flags are as for
+/** Try to find a running fallback directory. Flags are as for
  * router_pick_directory_server.
  */
 static const routerstatus_t *
@@ -1438,7 +1440,7 @@ router_pick_directory_server_impl(dirinfo_type_t type, int flags)
 
   /* Find all the running dirservers we know about. */
   SMARTLIST_FOREACH_BEGIN(nodelist_get_list(), const node_t *, node) {
-    int is_trusted;
+    int is_trusted, is_trusted_extrainfo;
     int is_overloaded;
     tor_addr_t addr;
     const routerstatus_t *status = node->rs;
@@ -1453,8 +1455,10 @@ router_pick_directory_server_impl(dirinfo_type_t type, int flags)
     if (requireother && router_digest_is_me(node->identity))
       continue;
     is_trusted = router_digest_is_trusted_dir(node->identity);
+    is_trusted_extrainfo = router_digest_is_trusted_dir_type(
+                           node->identity, EXTRAINFO_DIRINFO);
     if ((type & EXTRAINFO_DIRINFO) &&
-        !router_supports_extrainfo(node->identity, 0))
+        !router_supports_extrainfo(node->identity, is_trusted_extrainfo))
       continue;
     if ((type & MICRODESC_DIRINFO) && !is_trusted &&
         !node->rs->version_supports_microdesc_cache)
@@ -3292,6 +3296,14 @@ routerlist_reset_warnings(void)
   networkstatus_reset_warnings();
 }
 
+/** Return 1 if the signed descriptor of this router is older than
+ *  <b>seconds</b> seconds.  Otherwise return 0. */
+MOCK_IMPL(int,
+router_descriptor_is_older_than,(const routerinfo_t *router, int seconds))
+{
+  return router->cache_info.published_on < time(NULL) - seconds;
+}
+
 /** Add <b>router</b> to the routerlist, if we don't already have it.  Replace
  * older entries (if any) with the same key.  Note: Callers should not hold
  * their pointers to <b>router</b> if this function fails; <b>router</b>
@@ -3461,7 +3473,7 @@ router_add_to_routerlist(routerinfo_t *router, const char **msg,
   }
 
   if (!in_consensus && from_cache &&
-      router->cache_info.published_on < time(NULL) - OLD_ROUTER_DESC_MAX_AGE) {
+      router_descriptor_is_older_than(router, OLD_ROUTER_DESC_MAX_AGE)) {
     *msg = "Router descriptor was really old.";
     routerinfo_free(router);
     return ROUTER_WAS_NOT_NEW;

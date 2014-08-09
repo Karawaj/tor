@@ -1267,7 +1267,8 @@ router_perform_bandwidth_test(int num_circs, time_t now)
 }
 
 /** Return true iff our network is in some sense disabled: either we're
- * hibernating, entering hibernation, or */
+ * hibernating, entering hibernation, or the network is turned off with
+ * DisableNetwork. */
 int
 net_is_disabled(void)
 {
@@ -2370,7 +2371,8 @@ router_dump_router_to_string(routerinfo_t *router,
     has_extra_info_digest ? "extra-info-digest " : "",
     has_extra_info_digest ? extra_info_digest : "",
     has_extra_info_digest ? "\n" : "",
-    options->DownloadExtraInfo ? "caches-extra-info\n" : "",
+    (options->DownloadExtraInfo || options->V3AuthoritativeDir) ?
+                         "caches-extra-info\n" : "",
     onion_pkey, identity_pkey,
     family_line,
     we_are_hibernating() ? "hibernating 1\n" : "",

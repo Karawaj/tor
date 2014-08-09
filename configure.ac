@@ -3,7 +3,7 @@ dnl Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson
 dnl Copyright (c) 2007-2013, The Tor Project, Inc.
 dnl See LICENSE for licensing information
 
-AC_INIT([tor],[0.2.5.4-alpha-dev])
+AC_INIT([tor],[0.2.6.0-alpha-dev])
 AC_CONFIG_SRCDIR([src/or/main.c])
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE
@@ -24,7 +24,9 @@ CPPFLAGS="$CPPFLAGS -I\${top_srcdir}/src/common"
 
 #XXXX020 We should make these enabled or not, before 0.2.0.x-final
 AC_ARG_ENABLE(buf-freelists,
-   AS_HELP_STRING(--disable-buf-freelists, disable freelists for buffer RAM))
+   AS_HELP_STRING(--enable-buf-freelists, enable freelists for buffer RAM))
+AC_ARG_ENABLE(mempools,
+   AS_HELP_STRING(--enable-mempools, enable mempools for relay cells))
 AC_ARG_ENABLE(openbsd-malloc,
    AS_HELP_STRING(--enable-openbsd-malloc, Use malloc code from openbsd.  Linux only))
 AC_ARG_ENABLE(instrument-downloads,
@@ -54,10 +56,17 @@ if test "$enable_static_tor" = "yes"; then
   CFLAGS="$CFLAGS -static"
 fi
 
-if test x$enable_buf_freelists != xno; then
+if test x$enable_buf_freelists = xyes; then
   AC_DEFINE(ENABLE_BUF_FREELISTS, 1,
             [Defined if we try to use freelists for buffer RAM chunks])
 fi
+
+AM_CONDITIONAL(USE_MEMPOOLS, test x$enable_mempools = xyes)
+if test x$enable_mempools = xyes; then
+  AC_DEFINE(ENABLE_MEMPOOLS, 1,
+            [Defined if we try to use mempools for cells being relayed])
+fi
+
 AM_CONDITIONAL(USE_OPENBSD_MALLOC, test x$enable_openbsd_malloc = xyes)
 if test x$enable_instrument_downloads = xyes; then
   AC_DEFINE(INSTRUMENT_DOWNLOADS, 1,
@@ -97,26 +106,6 @@ AC_ARG_ENABLE(upnp,
         no)  upnp=false ;;
         * ) AC_MSG_ERROR(bad value for --enable-upnp) ;;
       esac], [upnp=false])
-
-
-AC_ARG_ENABLE(threads,
-     AS_HELP_STRING(--disable-threads, disable multi-threading support))
-
-if test x$enable_threads = x; then
-   case $host in
-    *-*-solaris* )
-     # Don't try multithreading on solaris -- cpuworkers seem to lock.
-     AC_MSG_NOTICE([You are running Solaris; Sometimes threading makes
-cpu workers lock up here, so I will disable threads.])
-     enable_threads="no";;
-    *)
-     enable_threads="yes";;
-   esac
-fi
-
-if test "$enable_threads" = "yes"; then
-  AC_DEFINE(ENABLE_THREADS, 1, [Defined if we will try to use multithreading])
-fi
 
 case $host in
    *-*-solaris* )
@@ -317,10 +306,8 @@ if test "$LIBS" != "$saved_LIBS"; then
    have_rt=yes
 fi
 
-if test "$enable_threads" = "yes"; then
-  AC_SEARCH_LIBS(pthread_create, [pthread])
-  AC_SEARCH_LIBS(pthread_detach, [pthread])
-fi
+AC_SEARCH_LIBS(pthread_create, [pthread])
+AC_SEARCH_LIBS(pthread_detach, [pthread])
 
 dnl -------------------------------------------------------------------
 dnl Check for functions before libevent, since libevent-1.2 apparently
@@ -358,11 +345,12 @@ AC_CHECK_FUNCS(
         sysconf \
 	sysctl \
         uname \
+        usleep \
         vasprintf \
 	_vscprintf
 )
 
-if test "$enable_threads" = "yes"; then
+if test "$bwin32" != true; then
   AC_CHECK_HEADERS(pthread.h)
   AC_CHECK_FUNCS(pthread_create)
 fi
@@ -444,7 +432,7 @@ AC_CHECK_MEMBERS([struct event.min_heap_idx], , ,
 [#include <event.h>
 ])
 
-AC_CHECK_HEADERS(event2/event.h event2/dns.h)
+AC_CHECK_HEADERS(event2/event.h event2/dns.h event2/bufferevent_ssl.h)
 
 LIBS="$save_LIBS"
 LDFLAGS="$save_LDFLAGS"
@@ -889,6 +877,7 @@ AC_CHECK_HEADERS(
         sys/param.h \
         sys/prctl.h \
         sys/resource.h \
+        sys/select.h \
         sys/socket.h \
 	sys/sysctl.h \
         sys/syslimits.h \

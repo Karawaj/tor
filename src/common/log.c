@@ -562,6 +562,27 @@ tor_log_update_sigsafe_err_fds(void)
   UNLOCK_LOGS();
 }
 
+/** Add to <b>out</b> a copy of every currently configured log file name. Used
+ * to enable access to these filenames with the sandbox code. */
+void
+tor_log_get_logfile_names(smartlist_t *out)
+{
+  logfile_t *lf;
+  tor_assert(out);
+
+  LOCK_LOGS();
+
+  for (lf = logfiles; lf; lf = lf->next) {
+    if (lf->is_temporary || lf->is_syslog || lf->callback)
+      continue;
+    if (lf->filename == NULL)
+      continue;
+    smartlist_add(out, tor_strdup(lf->filename));
+  }
+
+  UNLOCK_LOGS();
+}
+
 /** Output a message to the log, prefixed with a function name <b>fn</b>. */
 #ifdef __GNUC__
 /** GCC-based implementation of the log_fn backend, used when we have
@@ -989,12 +1010,16 @@ mark_logs_temp(void)
  * logfile fails, -1 is returned and errno is set appropriately (by open(2)).
  */
 int
-add_file_log(const log_severity_list_t *severity, const char *filename)
+add_file_log(const log_severity_list_t *severity, const char *filename,
+             const int truncate)
 {
   int fd;
   logfile_t *lf;
 
-  fd = tor_open_cloexec(filename, O_WRONLY|O_CREAT|O_APPEND, 0644);
+  int open_flags = O_WRONLY|O_CREAT;
+  open_flags |= truncate ? O_TRUNC : O_APPEND;
+
+  fd = tor_open_cloexec(filename, open_flags, 0644);
   if (fd<0)
     return -1;
   if (tor_fd_seekend(fd)<0) {
@@ -1274,5 +1299,17 @@ switch_logs_debug(void)
   }
   log_global_min_severity_ = get_min_log_level();
   UNLOCK_LOGS();
+}
+
+/** Truncate all the log files. */
+void
+truncate_logs(void)
+{
+  logfile_t *lf;
+  for (lf = logfiles; lf; lf = lf->next) {
+    if (lf->fd >= 0) {
+      tor_ftruncate(lf->fd);
+    }
+  }
 }
 

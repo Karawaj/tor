@@ -26,7 +26,9 @@
 #include "control.h"
 #include "geoip.h"
 #include "main.h"
+#ifdef ENABLE_MEMPOOLS
 #include "mempool.h"
+#endif
 #include "networkstatus.h"
 #include "nodelist.h"
 #include "onion.h"
@@ -109,14 +111,14 @@ relay_set_digest(crypto_digest_t *digest, cell_t *cell)
 static int
 relay_digest_matches(crypto_digest_t *digest, cell_t *cell)
 {
-  char received_integrity[4], calculated_integrity[4];
+  uint32_t received_integrity, calculated_integrity;
   relay_header_t rh;
   crypto_digest_t *backup_digest=NULL;
 
   backup_digest = crypto_digest_dup(digest);
 
   relay_header_unpack(&rh, cell->payload);
-  memcpy(received_integrity, rh.integrity, 4);
+  memcpy(&received_integrity, rh.integrity, 4);
   memset(rh.integrity, 0, 4);
   relay_header_pack(cell->payload, &rh);
 
@@ -125,15 +127,15 @@ relay_digest_matches(crypto_digest_t *digest, cell_t *cell)
 //    received_integrity[2], received_integrity[3]);
 
   crypto_digest_add_bytes(digest, (char*) cell->payload, CELL_PAYLOAD_SIZE);
-  crypto_digest_get_digest(digest, calculated_integrity, 4);
+  crypto_digest_get_digest(digest, (char*) &calculated_integrity, 4);
 
-  if (tor_memneq(received_integrity, calculated_integrity, 4)) {
+  if (calculated_integrity != received_integrity) {
 //    log_fn(LOG_INFO,"Recognized=0 but bad digest. Not recognizing.");
 // (%d vs %d).", received_integrity, calculated_integrity);
     /* restore digest to its old form */
     crypto_digest_assign(digest, backup_digest);
     /* restore the relay header */
-    memcpy(rh.integrity, received_integrity, 4);
+    memcpy(rh.integrity, &received_integrity, 4);
     relay_header_pack(cell->payload, &rh);
     crypto_digest_free(backup_digest);
     return 0;
@@ -1435,7 +1437,6 @@ connection_edge_process_relay_cell(cell_t *cell, circuit_t *circ,
     switch (rh.command) {
       case RELAY_COMMAND_BEGIN:
       case RELAY_COMMAND_CONNECTED:
-      case RELAY_COMMAND_DATA:
       case RELAY_COMMAND_END:
       case RELAY_COMMAND_RESOLVE:
       case RELAY_COMMAND_RESOLVED:
@@ -1460,6 +1461,9 @@ connection_edge_process_relay_cell(cell_t *cell, circuit_t *circ,
        * EXIT_CONN_STATE_CONNECTING or EXIT_CONN_STATE_RESOLVING.
        * This speeds up HTTP, for example. */
       optimistic_data = 1;
+    } else if (rh.stream_id == 0 && rh.command == RELAY_COMMAND_DATA) {
+      log_warn(LD_BUG, "Somehow I had a connection that matched a "
+               "data cell with stream ID 0.");
     } else {
       return connection_edge_process_relay_cell_not_open(
                &rh, cell, circ, conn, layer_hint);
@@ -1520,7 +1524,11 @@ connection_edge_process_relay_cell(cell_t *cell, circuit_t *circ,
 
       circuit_consider_sending_sendme(circ, layer_hint);
 
-      if (!conn) {
+      if (rh.stream_id == 0) {
+        log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL, "Relay data cell with zero "
+               "stream_id. Dropping.");
+        return 0;
+      } else if (!conn) {
         log_info(domain,"data cell dropped, unknown stream (streamid %d).",
                  rh.stream_id);
         return 0;
@@ -2231,9 +2239,10 @@ circuit_consider_sending_sendme(circuit_t *circ, crypt_path_t *layer_hint)
 #define assert_cmux_ok_paranoid(chan)
 #endif
 
-/** The total number of cells we have allocated from the memory pool. */
+/** The total number of cells we have allocated. */
 static size_t total_cells_allocated = 0;
 
+#ifdef ENABLE_MEMPOOLS
 /** A memory pool to allocate packed_cell_t objects. */
 static mp_pool_t *cell_pool = NULL;
 
@@ -2265,12 +2274,30 @@ clean_cell_pool(void)
   mp_pool_clean(cell_pool, 0, 1);
 }
 
+#define relay_alloc_cell() \
+  mp_pool_get(cell_pool)
+#define relay_free_cell(cell) \
+  mp_pool_release(cell)
+
+#define RELAY_CELL_MEM_COST (sizeof(packed_cell_t) + MP_POOL_ITEM_OVERHEAD)
+
+#else /* !ENABLE_MEMPOOLS case */
+
+#define relay_alloc_cell() \
+  tor_malloc_zero(sizeof(packed_cell_t))
+#define relay_free_cell(cell) \
+  tor_free(cell)
+
+#define RELAY_CELL_MEM_COST (sizeof(packed_cell_t))
+
+#endif /* ENABLE_MEMPOOLS */
+
 /** Release storage held by <b>cell</b>. */
 static INLINE void
 packed_cell_free_unchecked(packed_cell_t *cell)
 {
   --total_cells_allocated;
-  mp_pool_release(cell);
+  relay_free_cell(cell);
 }
 
 /** Allocate and return a new packed_cell_t. */
@@ -2278,7 +2305,7 @@ STATIC packed_cell_t *
 packed_cell_new(void)
 {
   ++total_cells_allocated;
-  return mp_pool_get(cell_pool);
+  return relay_alloc_cell();
 }
 
 /** Return a packed cell used outside by channel_t lower layer */
@@ -2307,7 +2334,9 @@ dump_cell_pool_usage(int severity)
   tor_log(severity, LD_MM,
           "%d cells allocated on %d circuits. %d cells leaked.",
           n_cells, n_circs, (int)total_cells_allocated - n_cells);
+#ifdef ENABLE_MEMPOOLS
   mp_pool_log_status(cell_pool, severity);
+#endif
 }
 
 /** Allocate a new copy of packed <b>cell</b>. */
@@ -2387,7 +2416,7 @@ cell_queue_pop(cell_queue_t *queue)
 size_t
 packed_cell_mem_cost(void)
 {
-  return sizeof(packed_cell_t) + MP_POOL_ITEM_OVERHEAD;
+  return RELAY_CELL_MEM_COST;
 }
 
 /** DOCDOC */
@@ -2537,6 +2566,17 @@ packed_cell_get_command(const packed_cell_t *cell, int wide_circ_ids)
     return get_uint8(cell->body+4);
   } else {
     return get_uint8(cell->body+2);
+  }
+}
+
+/** Extract the circuit ID from a packed cell. */
+circid_t
+packed_cell_get_circid(const packed_cell_t *cell, int wide_circ_ids)
+{
+  if (wide_circ_ids) {
+    return ntohl(get_uint32(cell->body));
+  } else {
+    return ntohs(get_uint16(cell->body));
   }
 }
 

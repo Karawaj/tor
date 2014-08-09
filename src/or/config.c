@@ -147,7 +147,7 @@ static config_var_t option_vars_[] = {
   V(AuthDirInvalid,              LINELIST, NULL),
   V(AuthDirInvalidCCs,           CSV,      ""),
   V(AuthDirFastGuarantee,        MEMUNIT,  "100 KB"),
-  V(AuthDirGuardBWGuarantee,     MEMUNIT,  "250 KB"),
+  V(AuthDirGuardBWGuarantee,     MEMUNIT,  "2 MB"),
   V(AuthDirReject,               LINELIST, NULL),
   V(AuthDirRejectCCs,            CSV,      ""),
   V(AuthDirRejectUnlisted,       BOOL,     "0"),
@@ -302,6 +302,7 @@ static config_var_t option_vars_[] = {
   OBSOLETE("LogLevel"),
   OBSOLETE("LogFile"),
   V(LogTimeGranularity,          MSEC_INTERVAL, "1 second"),
+  V(TruncateLogFile,             BOOL,     "0"),
   V(LongLivedPorts,              CSV,
         "21,22,706,1863,5050,5190,5222,5223,6523,6667,6697,8300"),
   VAR("MapAddress",              LINELIST, AddressMap,           NULL),
@@ -325,7 +326,7 @@ static config_var_t option_vars_[] = {
   VAR("NodeFamily",              LINELIST, NodeFamilies,         NULL),
   V(NumCPUs,                     UINT,     "0"),
   V(NumDirectoryGuards,          UINT,     "0"),
-  V(NumEntryGuards,              UINT,     "3"),
+  V(NumEntryGuards,              UINT,     "0"),
   V(ORListenAddress,             LINELIST, NULL),
   VPORT(ORPort,                      LINELIST, NULL),
   V(OutboundBindAddress,         LINELIST,   NULL),
@@ -536,9 +537,11 @@ static int options_transition_affects_descriptor(
       const or_options_t *old_options, const or_options_t *new_options);
 static int check_nickname_list(char **lst, const char *name, char **msg);
 
-static int parse_client_transport_line(const char *line, int validate_only);
+static int parse_client_transport_line(const or_options_t *options,
+                                       const char *line, int validate_only);
 
-static int parse_server_transport_line(const char *line, int validate_only);
+static int parse_server_transport_line(const or_options_t *options,
+                                       const char *line, int validate_only);
 static char *get_bindaddr_from_transport_listen_line(const char *line,
                                                      const char *transport);
 static int parse_dir_authority_line(const char *line,
@@ -555,7 +558,8 @@ static int check_server_ports(const smartlist_t *ports,
 static int validate_data_directory(or_options_t *options);
 static int write_configuration_file(const char *fname,
                                     const or_options_t *options);
-static int options_init_logs(or_options_t *options, int validate_only);
+static int options_init_logs(const or_options_t *old_options,
+                             or_options_t *options, int validate_only);
 
 static void init_libevent(const or_options_t *options);
 static int opt_streq(const char *s1, const char *s2);
@@ -1141,13 +1145,12 @@ options_act_reversible(const or_options_t *old_options, char **msg)
   if (!running_tor)
     goto commit;
 
-  if (!sandbox_is_active()) {
-    mark_logs_temp(); /* Close current logs once new logs are open. */
-    logs_marked = 1;
-    if (options_init_logs(options, 0)<0) { /* Configure the tor_log(s) */
-      *msg = tor_strdup("Failed to init Log options. See logs for details.");
-      goto rollback;
-    }
+  mark_logs_temp(); /* Close current logs once new logs are open. */
+  logs_marked = 1;
+  /* Configure the tor_log(s) */
+  if (options_init_logs(old_options, options, 0)<0) {
+    *msg = tor_strdup("Failed to init Log options. See logs for details.");
+    goto rollback;
   }
 
  commit:
@@ -1426,7 +1429,7 @@ options_act(const or_options_t *old_options)
   pt_prepare_proxy_list_for_config_read();
   if (options->ClientTransportPlugin) {
     for (cl = options->ClientTransportPlugin; cl; cl = cl->next) {
-      if (parse_client_transport_line(cl->value, 0)<0) {
+      if (parse_client_transport_line(options, cl->value, 0)<0) {
         log_warn(LD_BUG,
                  "Previously validated ClientTransportPlugin line "
                  "could not be added!");
@@ -1437,7 +1440,7 @@ options_act(const or_options_t *old_options)
 
   if (options->ServerTransportPlugin && server_mode(options)) {
     for (cl = options->ServerTransportPlugin; cl; cl = cl->next) {
-      if (parse_server_transport_line(cl->value, 0)<0) {
+      if (parse_server_transport_line(options, cl->value, 0)<0) {
         log_warn(LD_BUG,
                  "Previously validated ServerTransportPlugin line "
                  "could not be added!");
@@ -1592,6 +1595,20 @@ options_act(const or_options_t *old_options)
     return -1;
   }
 
+  config_maybe_load_geoip_files_(options, old_options);
+
+  if (geoip_is_loaded(AF_INET) && options->GeoIPExcludeUnknown) {
+    /* ExcludeUnknown is true or "auto" */
+    const int is_auto = options->GeoIPExcludeUnknown == -1;
+    int changed;
+
+    changed  = routerset_add_unknown_ccs(&options->ExcludeNodes, is_auto);
+    changed += routerset_add_unknown_ccs(&options->ExcludeExitNodes, is_auto);
+
+    if (changed)
+      routerset_add_unknown_ccs(&options->ExcludeExitNodesUnion_, is_auto);
+  }
+
   /* Check for transitions that need action. */
   if (old_options) {
     int revise_trackexithosts = 0;
@@ -1685,20 +1702,6 @@ options_act(const or_options_t *old_options)
     if (options->PerConnBWRate != old_options->PerConnBWRate ||
         options->PerConnBWBurst != old_options->PerConnBWBurst)
       connection_or_update_token_buckets(get_connection_array(), options);
-  }
-
-  config_maybe_load_geoip_files_(options, old_options);
-
-  if (geoip_is_loaded(AF_INET) && options->GeoIPExcludeUnknown) {
-    /* ExcludeUnknown is true or "auto" */
-    const int is_auto = options->GeoIPExcludeUnknown == -1;
-    int changed;
-
-    changed  = routerset_add_unknown_ccs(&options->ExcludeNodes, is_auto);
-    changed += routerset_add_unknown_ccs(&options->ExcludeExitNodes, is_auto);
-
-    if (changed)
-      routerset_add_unknown_ccs(&options->ExcludeExitNodesUnion_, is_auto);
   }
 
   if (options->CellStatistics || options->DirReqStatistics ||
@@ -2547,7 +2550,8 @@ options_validate(or_options_t *old_options, or_options_t *options,
         config_line_append(&options->Logs, "Log", "warn stdout");
   }
 
-  if (options_init_logs(options, 1)<0) /* Validate the tor_log(s) */
+  /* Validate the tor_log(s) */
+  if (options_init_logs(old_options, options, 1)<0)
     REJECT("Failed to validate Log options. See logs for details.");
 
   if (authdir_mode(options)) {
@@ -3029,6 +3033,11 @@ options_validate(or_options_t *old_options, or_options_t *options,
   if (options->KeepalivePeriod < 1)
     REJECT("KeepalivePeriod option must be positive.");
 
+  if (options->PortForwarding && options->Sandbox) {
+    REJECT("PortForwarding is not compatible with Sandbox; at most one can "
+           "be set");
+  }
+
   if (ensure_bandwidth_cap(&options->BandwidthRate,
                            "BandwidthRate", msg) < 0)
     return -1;
@@ -3246,9 +3255,6 @@ options_validate(or_options_t *old_options, or_options_t *options,
              "have it group-readable.");
   }
 
-  if (options->UseEntryGuards && ! options->NumEntryGuards)
-    REJECT("Cannot enable UseEntryGuards with NumEntryGuards set to 0");
-
   if (options->MyFamily && options->BridgeRelay) {
     log_warn(LD_CONFIG, "Listing a family for a bridge relay is not "
              "supported: it can reveal bridge fingerprints to censors. "
@@ -3284,13 +3290,13 @@ options_validate(or_options_t *old_options, or_options_t *options,
   }
 
   for (cl = options->ClientTransportPlugin; cl; cl = cl->next) {
-    if (parse_client_transport_line(cl->value, 1)<0)
-      REJECT("Transport line did not parse. See logs for details.");
+    if (parse_client_transport_line(options, cl->value, 1)<0)
+      REJECT("Invalid client transport line. See logs for details.");
   }
 
   for (cl = options->ServerTransportPlugin; cl; cl = cl->next) {
-    if (parse_server_transport_line(cl->value, 1)<0)
-      REJECT("Server transport line did not parse. See logs for details.");
+    if (parse_server_transport_line(options, cl->value, 1)<0)
+      REJECT("Invalid server transport line. See logs for details.");
   }
 
   if (options->ServerTransportPlugin && !server_mode(options)) {
@@ -3717,22 +3723,28 @@ options_transition_allowed(const or_options_t *old,
   }
 
   if (sandbox_is_active()) {
-    if (! opt_streq(old->PidFile, new_val->PidFile)) {
-      *msg = tor_strdup("Can't change PidFile while Sandbox is active");
-      return -1;
-    }
+#define SB_NOCHANGE_STR(opt)                                            \
+    do {                                                                \
+      if (! opt_streq(old->opt, new_val->opt)) {                        \
+        *msg = tor_strdup("Can't change " #opt " while Sandbox is active"); \
+        return -1;                                                      \
+      }                                                                 \
+    } while (0)
+
+    SB_NOCHANGE_STR(PidFile);
+    SB_NOCHANGE_STR(ServerDNSResolvConfFile);
+    SB_NOCHANGE_STR(DirPortFrontPage);
+    SB_NOCHANGE_STR(CookieAuthFile);
+    SB_NOCHANGE_STR(ExtORPortCookieAuthFile);
+
+#undef SB_NOCHANGE_STR
+
     if (! config_lines_eq(old->Logs, new_val->Logs)) {
       *msg = tor_strdup("Can't change Logs while Sandbox is active");
       return -1;
     }
     if (old->ConnLimit != new_val->ConnLimit) {
       *msg = tor_strdup("Can't change ConnLimit while Sandbox is active");
-      return -1;
-    }
-    if (! opt_streq(old->ServerDNSResolvConfFile,
-                    new_val->ServerDNSResolvConfFile)) {
-      *msg = tor_strdup("Can't change ServerDNSResolvConfFile"
-                        " while Sandbox is active");
       return -1;
     }
     if (server_mode(old) != server_mode(new_val)) {
@@ -4438,7 +4450,8 @@ addressmap_register_auto(const char *from, const char *to,
  * Initialize the logs based on the configuration file.
  */
 static int
-options_init_logs(or_options_t *options, int validate_only)
+options_init_logs(const or_options_t *old_options, or_options_t *options,
+                  int validate_only)
 {
   config_line_t *opt;
   int ok;
@@ -4531,7 +4544,21 @@ options_init_logs(or_options_t *options, int validate_only)
         !strcasecmp(smartlist_get(elts,0), "file")) {
       if (!validate_only) {
         char *fname = expand_filename(smartlist_get(elts, 1));
-        if (add_file_log(severity, fname) < 0) {
+        /* Truncate if TruncateLogFile is set and we haven't seen this option
+           line before. */
+        int truncate = 0;
+        if (options->TruncateLogFile) {
+          truncate = 1;
+          if (old_options) {
+            config_line_t *opt2;
+            for (opt2 = old_options->Logs; opt2; opt2 = opt2->next)
+              if (!strcmp(opt->value, opt2->value)) {
+                truncate = 0;
+                break;
+              }
+          }
+        }
+        if (add_file_log(severity, fname, truncate) < 0) {
           log_warn(LD_CONFIG, "Couldn't open file for 'Log %s': %s",
                    opt->value, strerror(errno));
           ok = 0;
@@ -4734,7 +4761,8 @@ parse_bridge_line(const char *line)
  * our internal transport list.
  * - If it's a managed proxy line, launch the managed proxy. */
 static int
-parse_client_transport_line(const char *line, int validate_only)
+parse_client_transport_line(const or_options_t *options,
+                            const char *line, int validate_only)
 {
   smartlist_t *items = NULL;
   int r;
@@ -4798,6 +4826,12 @@ parse_client_transport_line(const char *line, int validate_only)
   } else {
     log_warn(LD_CONFIG, "Strange ClientTransportPlugin field '%s'.",
              field2);
+    goto err;
+  }
+
+  if (is_managed && options->Sandbox) {
+    log_warn(LD_CONFIG, "Managed proxies are not compatible with Sandbox mode."
+             "(ClientTransportPlugin line was %s)", escaped(line));
     goto err;
   }
 
@@ -5027,7 +5061,8 @@ get_options_for_server_transport(const char *transport)
  * If <b>validate_only</b> is 0, the line is well-formed, and it's a
  * managed proxy line, launch the managed proxy. */
 static int
-parse_server_transport_line(const char *line, int validate_only)
+parse_server_transport_line(const or_options_t *options,
+                            const char *line, int validate_only)
 {
   smartlist_t *items = NULL;
   int r;
@@ -5079,6 +5114,12 @@ parse_server_transport_line(const char *line, int validate_only)
     is_managed=0;
   } else {
     log_warn(LD_CONFIG, "Strange ServerTransportPlugin type '%s'", type);
+    goto err;
+  }
+
+  if (is_managed && options->Sandbox) {
+    log_warn(LD_CONFIG, "Managed proxies are not compatible with Sandbox mode."
+             "(ServerTransportPlugin line was %s)", escaped(line));
     goto err;
   }
 
