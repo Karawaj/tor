@@ -13,6 +13,7 @@
 #define TOR_OR_H
 
 #include "orconfig.h"
+#include "../common/compat_threads.h"
 
 #ifdef __COVERITY__
 /* If we're building for a static analysis, turn on all the off-by-default
@@ -2912,6 +2913,10 @@ typedef struct circuit_t {
    * cells to n_conn.  NULL if we have no cells pending, or if we're not
    * linked to an OR connection. */
   struct circuit_t *prev_active_on_n_chan;
+  /**
+   mutex
+   */
+  tor_mutex_t lock;
 } circuit_t;
 
 /** Largest number of relay_early cells that we can send on a given

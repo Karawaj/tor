@@ -348,18 +348,18 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
              "Dropping.", (unsigned)cell->circ_id);
     return;
   }
-
+  tor_mutex_acquire(&circ->lock);
   if (circ->n_circ_id != cell->circ_id) {
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,
            "got created cell from Tor client? Closing.");
     circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
-    return;
+    goto exit;
   }
 
   if (created_cell_parse(&extended_cell.created_cell, cell) < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_OR, "Unparseable created cell.");
     circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
-    return;
+    goto exit;
   }
 
   if (CIRCUIT_IS_ORIGIN(circ)) { /* we're the OP. Handshake this. */
@@ -370,14 +370,14 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
                                         &extended_cell.created_cell)) < 0) {
       log_warn(LD_OR,"circuit_finish_handshake failed.");
       circuit_mark_for_close(circ, -err_reason);
-      return;
+      goto exit;
     }
     log_debug(LD_OR,"Moving to next skin.");
     if ((err_reason = circuit_send_next_onion_skin(origin_circ)) < 0) {
       log_info(LD_OR,"circuit_send_next_onion_skin failed.");
       /* XXX push this circuit_close lower */
       circuit_mark_for_close(circ, -err_reason);
-      return;
+      goto exit;
     }
   } else { /* pack it into an extended relay cell, and send it. */
     uint8_t command=0;
@@ -393,12 +393,14 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
     if (extended_cell_format(&command, &len, payload, &extended_cell) < 0) {
       log_fn(LOG_PROTOCOL_WARN, LD_OR, "Can't format extended cell.");
       circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
-      return;
+      goto exit;
     }
 
     relay_send_command_from_edge(0, circ, command,
                                  (const char*)payload, len, NULL);
   }
+  exit:
+  tor_mutex_release(&circ->lock);
 }
 
 /** Process a 'relay' or 'relay_early' <b>cell</b> that just arrived from
@@ -420,11 +422,12 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
               channel_get_canonical_remote_descr(chan));
     return;
   }
+  tor_mutex_acquire(&circ->lock);
 
   if (circ->state == CIRCUIT_STATE_ONIONSKIN_PENDING) {
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,"circuit in create_wait. Closing.");
     circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
-    return;
+    goto exit;
   }
 
   if (CIRCUIT_IS_ORIGIN(circ)) {
@@ -456,7 +459,7 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
                (unsigned)cell->circ_id,
                safe_str(channel_get_canonical_remote_descr(chan)));
         circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
-        return;
+        goto exit;
       }
       --or_circ->remaining_relay_early_cells;
     }
@@ -468,6 +471,8 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
            direction==CELL_DIRECTION_OUT?"forward":"backward");
     circuit_mark_for_close(circ, -reason);
   }
+  exit:
+  tor_mutex_release(&circ->lock);
 }
 
 /** Process a 'destroy' <b>cell</b> that just arrived from
@@ -497,7 +502,7 @@ command_process_destroy_cell(cell_t *cell, channel_t *chan)
     return;
   }
   log_debug(LD_OR,"Received for circID %u.",(unsigned)cell->circ_id);
-
+  tor_mutex_acquire(&circ->lock);
   reason = (uint8_t)cell->payload[0];
 
   if (!CIRCUIT_IS_ORIGIN(circ) &&
@@ -517,6 +522,7 @@ command_process_destroy_cell(cell_t *cell, channel_t *chan)
                                    payload, sizeof(payload), NULL);
     }
   }
+  tor_mutex_release(&circ->lock);
 }
 
 /** Callback to handle a new channel; call command_setup_channel() to give

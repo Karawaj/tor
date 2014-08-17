@@ -652,6 +652,7 @@ init_circuit_base(circuit_t *circ)
 
   circ->package_window = circuit_initial_package_window();
   circ->deliver_window = CIRCWINDOW_START;
+  tor_mutex_init(&circ->lock);
   cell_queue_init(&circ->n_chan_cells);
 
   TOR_LIST_INSERT_HEAD(&global_circuitlist, circ, head);
