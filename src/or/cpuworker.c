@@ -183,8 +183,7 @@ void
 cpuworkers_rotate_keyinfo(void)
 {
   void* new_state = worker_state_new(NULL);
-  if (threadpool_update_state(threadpool, update_state, new_state) < 0)
-  {
+  if (threadpool_update_state(threadpool, update_state, new_state) < 0) {
     log_warn(LD_OR, "Failed to queue key update for worker threads.");
   }
 }
@@ -338,7 +337,7 @@ cpuworker_onion_handshake_replyfn(void *work_)
             "Unpacking cpuworker reply %p, circ=%p, success=%d",
             job, circ, rpl.success);
 
-  if (circ->base_.magic == DEAD_CIRCUIT_MAGIC) { 
+  if (circ->base_.magic == DEAD_CIRCUIT_MAGIC) {
     /* The circuit was supposed to get freed while the reply was
      * pending. Instead, it got left for us to free so that we wouldn't freak
      * out when the job->circ field wound up pointing to nothing. */

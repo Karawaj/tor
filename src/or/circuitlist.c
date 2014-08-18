@@ -947,9 +947,7 @@ circuit_dump_by_conn(connection_t *conn, int severity)
     }
   }
   tor_mutex_release(&global_circuitlist_lock);
-
 }
-
 /** A helper function for circuit_dump_by_chan() below. Log a bunch
  * of information about circuit <b>circ</b>.
  */
@@ -1196,9 +1194,7 @@ circuit_unlink_all_from_channel(channel_t *chan, int reason)
       circuit_mark_for_close(circ, reason);
   }
   tor_mutex_release(&global_circuitlist_lock);
-
 }
-
 /** Return a circ such that
  *  - circ-\>rend_data-\>onion_address is equal to
  *    <b>rend_data</b>-\>onion_address,
@@ -1225,7 +1221,7 @@ circuit_get_ready_rend_circ_by_rend_data(const rend_data_t *rend_data)
                     rend_data->rend_cookie,
                     REND_COOKIE_LEN))
       {
-	tor_mutex_release(&global_circuitlist_lock);
+        tor_mutex_release(&global_circuitlist_lock);
         return ocirc;
       }
     }
@@ -1258,15 +1254,12 @@ circuit_get_next_by_pk_and_purpose(origin_circuit_t *start,
       continue;
     if (circ->purpose != purpose)
       continue;
-    if (!digest)
-    {
+    if (!digest) {
       tor_mutex_release(&global_circuitlist_lock);
       return TO_ORIGIN_CIRCUIT(circ);
-    }
-    else if (TO_ORIGIN_CIRCUIT(circ)->rend_data &&
+    }else if (TO_ORIGIN_CIRCUIT(circ)->rend_data &&
              tor_memeq(TO_ORIGIN_CIRCUIT(circ)->rend_data->rend_pk_digest,
-                     digest, DIGEST_LEN))
-    {
+                     digest, DIGEST_LEN)) {
       tor_mutex_release(&global_circuitlist_lock);
       return TO_ORIGIN_CIRCUIT(circ);
     }
@@ -1454,7 +1447,6 @@ circuit_mark_all_unused_circs(void)
       circuit_mark_for_close(circ, END_CIRC_REASON_FINISHED);
   }
   tor_mutex_release(&global_circuitlist_lock);
-
 }
 
 /** Go through the circuitlist; for each circuit that starts at us

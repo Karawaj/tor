@@ -746,7 +746,7 @@ channel_init(channel_t *chan)
 
   /* Timestamp it */
   channel_timestamp_created(chan);
-  
+
   tor_mutex_init(&chan->lock);
 }
 
@@ -779,7 +779,7 @@ void
 channel_free(channel_t *chan)
 {
   if (!chan) return;
-  
+
   tor_mutex_uninit(&chan->lock);
 
   /* It must be closed or errored */
@@ -2523,7 +2523,8 @@ channel_process_cells(channel_t *chan)
  * Warp on channel_process_cells function for use in threadpool
  */
 
-int channel_process_cells_warp(const void *state, void *chan)
+int
+channel_process_cells_warp(const void *state, void *chan)
 {
     channel_t *channel = chan;
     tor_mutex_acquire(&channel->lock);
@@ -2535,20 +2536,21 @@ int channel_process_cells_warp(const void *state, void *chan)
 /*
  * Adding channel_process to proccess in threadpool
  */
-void multithread_process_cells(channel_t *chan)
-{ 
+void
+multithread_process_cells(channel_t *chan)
+{
   static replyqueue_t *replyqueue = NULL;
   static threadpool_t *threadpool = NULL;
 
-  if (replyqueue == NULL)
-  {
+  if (replyqueue == NULL) {
     replyqueue = replyqueue_new(0);
     threadpool = threadpool_new(get_num_cpus(get_options()) + 1,
                           replyqueue,
                           NULL,
                           NULL);
   }
-  threadpool_queue_work(threadpool, channel_process_cells_warp, no_reply, chan);
+  threadpool_queue_work(threadpool, channel_process_cells_warp,
+                        no_reply, chan);
 }
 /**
  * Queue incoming cell

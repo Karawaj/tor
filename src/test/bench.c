@@ -473,30 +473,31 @@ bench_ecdh_p224(void)
 }
 #endif
 
-int big_task(const void *state, void *args)
+int
+big_task(const void *state, void *args)
 {
     volatile int iter = 1 << 25, x = 0;
-    while (--iter)
-    {
-        x++;
-    }    
+    while (--iter) {
+      x++;
+    }
     fprintf(stderr, "Big Done\n");
     return 0;
 }
 
-int small_task(const void *state, void *args)
+int
+small_task(const void *state, void *args)
 {
     volatile int iter = 1 << 5, x = 0;
-    while (--iter)
-    {
+    while (--iter) {
         x++;
-    }    
+    }
     fprintf(stderr, "Small Done\n");
     return 0;
 }
 
 static int countDone = 0;
-void reply_fn(void *work)
+void
+reply_fn(void *work)
 {
     countDone++;
 }
@@ -513,20 +514,18 @@ bench_workqueue()
                           NULL);
   reset_perftime();
   start = perftime();
-  for (i = 0; i < iters; i++)
-  {
+  for (i = 0; i < iters; i++) {
     rnd = rand() % 10;
     if (rnd < 8)
       threadpool_queue_work(threadpool, small_task, reply_fn, NULL);
     else
-      threadpool_queue_work(threadpool, big_task, reply_fn, NULL);  
+      threadpool_queue_work(threadpool, big_task, reply_fn, NULL);
   }
-  while(countDone != iters)
+  while (countDone != iters)
     replyqueue_process(replyqueue);
   end = perftime();
   printf("Complete workqueue bench:\n"
          "      %f millisec each.\n", NANOCOUNT(start, end, iters)/1e6);
-  
 }
 
 typedef void (*bench_fn)(void);

@@ -1,4 +1,4 @@
-/* 
+/*
  * File:   locks.h
  * Author: towelenee
  *
@@ -6,7 +6,7 @@
  */
 
 #ifndef LOCKS_H
-#define	LOCKS_H
+#define LOCKS_H
 
 #include "compat_threads.h"
 

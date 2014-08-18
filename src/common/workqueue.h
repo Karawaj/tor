@@ -24,7 +24,8 @@ typedef struct workqueue_entry_s workqueue_entry_t;
 #define WQ_RPL_SHUTDOWN 2
 
 int threadpool_update_state(threadpool_t *pool,
-                         int(*update_state)(void* old_state, void* new_state), void* new_state);
+                         int(*update_state)(void* old_state, void* new_state),
+        void* new_state);
 
 workqueue_entry_t *threadpool_queue_work(threadpool_t *pool,
                                          int (*fn)(const void *, void *),

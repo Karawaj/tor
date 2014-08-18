@@ -2999,7 +2999,6 @@ static int onion_handshakes_completed[MAX_ONION_HANDSHAKE_TYPE+1] = {0};
 void
 rep_hist_note_circuit_handshake_requested(uint16_t type)
 {
-  
   tor_mutex_acquire(&rep_hist_note_circuit_handshake_requested_lock);
   if (type <= MAX_ONION_HANDSHAKE_TYPE)
     onion_handshakes_requested[type]++;

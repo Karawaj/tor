@@ -200,7 +200,7 @@ struct channel_s {
   uint64_t n_cells_xmitted;
   /** Lock mutex*/
   tor_mutex_t lock;
-  
+
 };
 
 struct channel_listener_s {
