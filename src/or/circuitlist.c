@@ -32,6 +32,7 @@
 #include "routerlist.h"
 #include "routerset.h"
 #include "ht.h"
+#include "../common/locks.h"
 
 /********* START VARIABLES **********/
 
@@ -428,9 +429,11 @@ void
 circuit_close_all_marked(void)
 {
   circuit_t *circ, *tmp;
+  tor_mutex_acquire(&global_circuitlist_lock);
   TOR_LIST_FOREACH_SAFE(circ, &global_circuitlist, head, tmp)
     if (circ->marked_for_close)
       circuit_free(circ);
+  tor_mutex_release(&global_circuitlist_lock);
 }
 
 /** Return the head of the global linked list of circuits. */
@@ -643,6 +646,8 @@ circuit_initial_package_window(void)
 static void
 init_circuit_base(circuit_t *circ)
 {
+  tor_mutex_acquire(&global_circuitlist_lock);
+
   tor_gettimeofday(&circ->timestamp_created);
 
   // Gets reset when we send CREATE_FAST.
@@ -656,6 +661,7 @@ init_circuit_base(circuit_t *circ)
   cell_queue_init(&circ->n_chan_cells);
 
   TOR_LIST_INSERT_HEAD(&global_circuitlist, circ, head);
+  tor_mutex_release(&global_circuitlist_lock);
 }
 
 /** Allocate space for a new circuit, initializing with <b>p_circ_id</b>
@@ -825,6 +831,7 @@ void
 circuit_free_all(void)
 {
   circuit_t *tmp, *tmp2;
+  tor_mutex_acquire(&global_circuitlist_lock);
 
   TOR_LIST_FOREACH_SAFE(tmp, &global_circuitlist, head, tmp2) {
     if (! CIRCUIT_IS_ORIGIN(tmp)) {
@@ -843,6 +850,7 @@ circuit_free_all(void)
   circuits_pending_chans = NULL;
 
   HT_CLEAR(chan_circid_map, &chan_circid_map);
+  tor_mutex_release(&global_circuitlist_lock);
 }
 
 /** Deallocate space associated with the cpath node <b>victim</b>. */
@@ -905,6 +913,7 @@ circuit_dump_by_conn(connection_t *conn, int severity)
 {
   circuit_t *circ;
   edge_connection_t *tmpconn;
+  tor_mutex_acquire(&global_circuitlist_lock);
 
   TOR_LIST_FOREACH(circ, &global_circuitlist, head) {
     circid_t n_circ_id = circ->n_circ_id, p_circ_id = 0;
@@ -937,6 +946,8 @@ circuit_dump_by_conn(connection_t *conn, int severity)
       }
     }
   }
+  tor_mutex_release(&global_circuitlist_lock);
+
 }
 
 /** A helper function for circuit_dump_by_chan() below. Log a bunch
@@ -969,6 +980,7 @@ circuit_dump_by_chan(channel_t *chan, int severity)
   circuit_t *circ;
 
   tor_assert(chan);
+  tor_mutex_acquire(&global_circuitlist_lock);
 
   TOR_LIST_FOREACH(circ, &global_circuitlist, head) {
     circid_t n_circ_id = circ->n_circ_id, p_circ_id = 0;
@@ -1003,6 +1015,7 @@ circuit_dump_by_chan(channel_t *chan, int severity)
                                 n_circ_id, p_circ_id);
     }
   }
+  tor_mutex_release(&global_circuitlist_lock);
 }
 
 /** Return the circuit whose global ID is <b>id</b>, or NULL if no
@@ -1011,16 +1024,20 @@ origin_circuit_t *
 circuit_get_by_global_id(uint32_t id)
 {
   circuit_t *circ;
+  origin_circuit_t* reply = NULL;
+  tor_mutex_acquire(&global_circuitlist_lock);
+
   TOR_LIST_FOREACH(circ, &global_circuitlist, head) {
     if (CIRCUIT_IS_ORIGIN(circ) &&
         TO_ORIGIN_CIRCUIT(circ)->global_identifier == id) {
-      if (circ->marked_for_close)
-        return NULL;
-      else
-        return TO_ORIGIN_CIRCUIT(circ);
+      if (!circ->marked_for_close)
+        reply = TO_ORIGIN_CIRCUIT(circ);
+      break;
     }
   }
-  return NULL;
+  tor_mutex_release(&global_circuitlist_lock);
+
+  return reply;
 }
 
 /** Return a circ such that:
@@ -1155,6 +1172,7 @@ circuit_unlink_all_from_channel(channel_t *chan, int reason)
   circuit_t *circ;
 
   channel_unlink_all_circuits(chan);
+  tor_mutex_acquire(&global_circuitlist_lock);
 
   TOR_LIST_FOREACH(circ, &global_circuitlist, head) {
     int mark = 0;
@@ -1177,6 +1195,8 @@ circuit_unlink_all_from_channel(channel_t *chan, int reason)
     if (mark && !circ->marked_for_close)
       circuit_mark_for_close(circ, reason);
   }
+  tor_mutex_release(&global_circuitlist_lock);
+
 }
 
 /** Return a circ such that
@@ -1192,6 +1212,8 @@ origin_circuit_t *
 circuit_get_ready_rend_circ_by_rend_data(const rend_data_t *rend_data)
 {
   circuit_t *circ;
+  tor_mutex_acquire(&global_circuitlist_lock);
+
   TOR_LIST_FOREACH(circ, &global_circuitlist, head) {
     if (!circ->marked_for_close &&
         circ->purpose == CIRCUIT_PURPOSE_C_REND_READY) {
@@ -1202,9 +1224,14 @@ circuit_get_ready_rend_circ_by_rend_data(const rend_data_t *rend_data)
           tor_memeq(ocirc->rend_data->rend_cookie,
                     rend_data->rend_cookie,
                     REND_COOKIE_LEN))
+      {
+	tor_mutex_release(&global_circuitlist_lock);
         return ocirc;
+      }
     }
   }
+  tor_mutex_release(&global_circuitlist_lock);
+
   return NULL;
 }
 
@@ -1218,6 +1245,8 @@ circuit_get_next_by_pk_and_purpose(origin_circuit_t *start,
                                    const char *digest, uint8_t purpose)
 {
   circuit_t *circ;
+  tor_mutex_acquire(&global_circuitlist_lock);
+
   tor_assert(CIRCUIT_PURPOSE_IS_ORIGIN(purpose));
   if (start == NULL)
     circ = TOR_LIST_FIRST(&global_circuitlist);
@@ -1230,12 +1259,19 @@ circuit_get_next_by_pk_and_purpose(origin_circuit_t *start,
     if (circ->purpose != purpose)
       continue;
     if (!digest)
+    {
+      tor_mutex_release(&global_circuitlist_lock);
       return TO_ORIGIN_CIRCUIT(circ);
+    }
     else if (TO_ORIGIN_CIRCUIT(circ)->rend_data &&
              tor_memeq(TO_ORIGIN_CIRCUIT(circ)->rend_data->rend_pk_digest,
                      digest, DIGEST_LEN))
+    {
+      tor_mutex_release(&global_circuitlist_lock);
       return TO_ORIGIN_CIRCUIT(circ);
+    }
   }
+  tor_mutex_release(&global_circuitlist_lock);
   return NULL;
 }
 
@@ -1247,12 +1283,19 @@ circuit_get_by_rend_token_and_purpose(uint8_t purpose, const char *token,
                                       size_t len)
 {
   circuit_t *circ;
+  tor_mutex_acquire(&global_circuitlist_lock);
+
   TOR_LIST_FOREACH(circ, &global_circuitlist, head) {
     if (! circ->marked_for_close &&
         circ->purpose == purpose &&
         tor_memeq(TO_OR_CIRCUIT(circ)->rend_token, token, len))
+    {
+      tor_mutex_release(&global_circuitlist_lock);
       return TO_OR_CIRCUIT(circ);
+    }
   }
+  tor_mutex_release(&global_circuitlist_lock);
+
   return NULL;
 }
 
@@ -1308,6 +1351,7 @@ circuit_find_to_cannibalize(uint8_t purpose, extend_info_t *info,
             "Hunting for a circ to cannibalize: purpose %d, uptime %d, "
             "capacity %d, internal %d",
             purpose, need_uptime, need_capacity, internal);
+  tor_mutex_acquire(&global_circuitlist_lock);
 
   TOR_LIST_FOREACH(circ_, &global_circuitlist, head) {
     if (CIRCUIT_IS_ORIGIN(circ_) &&
@@ -1359,6 +1403,8 @@ circuit_find_to_cannibalize(uint8_t purpose, extend_info_t *info,
       }
     }
   }
+  tor_mutex_release(&global_circuitlist_lock);
+
   return best;
 }
 
@@ -1399,12 +1445,16 @@ void
 circuit_mark_all_unused_circs(void)
 {
   circuit_t *circ;
+  tor_mutex_acquire(&global_circuitlist_lock);
+
   TOR_LIST_FOREACH(circ, &global_circuitlist, head) {
     if (CIRCUIT_IS_ORIGIN(circ) &&
         !circ->marked_for_close &&
         !circ->timestamp_dirty)
       circuit_mark_for_close(circ, END_CIRC_REASON_FINISHED);
   }
+  tor_mutex_release(&global_circuitlist_lock);
+
 }
 
 /** Go through the circuitlist; for each circuit that starts at us
@@ -1418,6 +1468,8 @@ void
 circuit_mark_all_dirty_circs_as_unusable(void)
 {
   circuit_t *circ;
+  tor_mutex_acquire(&global_circuitlist_lock);
+
   TOR_LIST_FOREACH(circ, &global_circuitlist, head) {
     if (CIRCUIT_IS_ORIGIN(circ) &&
         !circ->marked_for_close &&
@@ -1425,6 +1477,7 @@ circuit_mark_all_dirty_circs_as_unusable(void)
       mark_circuit_unusable_for_new_conns(TO_ORIGIN_CIRCUIT(circ));
     }
   }
+  tor_mutex_release(&global_circuitlist_lock);
 }
 
 /** Mark <b>circ</b> to be closed next time we call
@@ -1664,6 +1717,8 @@ circuits_handle_oom(size_t current_allocation)
   circuit_t *circ;
   size_t n_cells_removed=0, n_cells_to_remove;
   int n_circuits_killed=0;
+  tor_mutex_acquire(&global_circuitlist_lock);
+
   log_notice(LD_GENERAL, "We're low on memory.  Killing circuits with "
              "over-long queues. (This behavior is controlled by "
              "MaxMemInCellQueues.)");
@@ -1708,6 +1763,7 @@ circuits_handle_oom(size_t current_allocation)
              U64_PRINTF_ARG(n_cells_removed * packed_cell_mem_cost()),
              n_circuits_killed);
 
+  tor_mutex_release(&global_circuitlist_lock);
   smartlist_free(circlist);
 }
 
