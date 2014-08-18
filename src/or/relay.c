@@ -433,7 +433,9 @@ circuit_package_relay_cell(cell_t *cell, circuit_t *circ,
   }
   ++stats_n_relay_cells_relayed;
 
+  tor_mutex_acquire(&chan->lock);
   append_cell_to_circuit_queue(circ, chan, cell, cell_direction, on_stream);
+  tor_mutex_release(&chan->lock);
   return 0;
 }
 
