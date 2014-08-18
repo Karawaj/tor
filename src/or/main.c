@@ -55,6 +55,7 @@
 #include "statefile.h"
 #include "status.h"
 #include "ext_orport.h"
+#include "../common/locks.h"
 #ifdef USE_DMALLOC
 #include <dmalloc.h>
 #include <openssl/crypto.h>
@@ -2836,6 +2837,7 @@ tor_main(int argc, char *argv[])
   update_approx_time(time(NULL));
   tor_threads_init();
   init_logging();
+  init_all_mutex();
 #ifdef USE_DMALLOC
   {
     /* Instruct OpenSSL to use our internal wrappers for malloc,
