@@ -15,6 +15,7 @@
  */
 
 #include "orconfig.h"
+#include "../common/locks.h"
 
 #if defined (WINCE)
 #include <WinSock2.h>
@@ -2078,6 +2079,7 @@ tor_tls_handshake(tor_tls_t *tls)
   tor_assert(tls);
   tor_assert(tls->ssl);
   tor_assert(tls->state == TOR_TLS_ST_HANDSHAKE);
+  tor_mutex_acquire(&tsl_handshake_lock);
   check_no_tls_errors();
   oldstate = tls->ssl->state;
   if (tls->isServer) {
@@ -2099,12 +2101,16 @@ tor_tls_handshake(tor_tls_t *tls)
   if (ERR_peek_error() != 0) {
     tls_log_errors(tls, tls->isServer ? LOG_INFO : LOG_WARN, LD_HANDSHAKE,
                    "handshaking");
+    tor_mutex_release(&tsl_handshake_lock);
     return TOR_TLS_ERROR_MISC;
   }
   if (r == TOR_TLS_DONE) {
+    tor_mutex_release(&tsl_handshake_lock);
+
     tls->state = TOR_TLS_ST_OPEN;
     return tor_tls_finish_handshake(tls);
   }
+  tor_mutex_release(&tsl_handshake_lock);
   return r;
 }
 
